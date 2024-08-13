@@ -99,6 +99,14 @@ pub unsafe fn init_instance(
     .engine_version(0)
     .api_version(vk::API_VERSION_1_0);
 
+  #[cfg(target_os = "macos")]
+  let vk_instance_create_info = vk::InstanceCreateInfo::default()
+    .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR)
+    .application_info(&app_info)
+    .enabled_layer_names(&all_layers)
+    .enabled_extension_names(&all_extensions);
+
+  #[cfg(not(target_os = "macos"))]
   let vk_instance_create_info = vk::InstanceCreateInfo::default()
     .application_info(&app_info)
     .enabled_layer_names(&all_layers)
