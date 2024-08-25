@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use ash::vk;
+use std::sync::Arc;
 
 pub struct AdSemaphore {
   pub(crate) vk_device: Arc<ash::Device>,

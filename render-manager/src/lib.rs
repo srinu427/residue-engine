@@ -1,17 +1,19 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub use ash_wrappers::ad_wrappers::AdSurface;
-pub use ash_wrappers::VkInstances;
-use ash_wrappers::{GPUQueueType, MemoryLocation, vk, VkContext};
-use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdSwapchain};
 use ash_wrappers::ad_wrappers::data_wrappers::{AdImage2D, Allocator};
-use ash_wrappers::ad_wrappers::sync_wrappers::AdFence;
+use ash_wrappers::ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
+pub use ash_wrappers::ad_wrappers::AdSurface;
+use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdSwapchain};
+pub use ash_wrappers::VkInstances;
+use ash_wrappers::{vk, GPUQueueType, MemoryLocation, VkContext};
 
 pub struct RenderManager {
   bg_image: AdImage2D,
   gen_allocator: Arc<Mutex<Allocator>>,
   transfer_cmd_pool: AdCommandPool,
+  render_semaphores: Vec<AdSemaphore>,
+  render_fences: Vec<AdFence>,
   render_cmd_buffers: Vec<AdCommandBuffer>,
   render_cmd_pool: AdCommandPool,
   image_acquire_fence: AdFence,
@@ -61,19 +63,25 @@ impl RenderManager {
     )?;
 
     let image_acquire_fence = vk_context.create_ad_fence(vk::FenceCreateFlags::default())?;
-    let render_cmd_pool = vk_context
-      .create_ad_command_pool(
-        vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
-        vk_context.qf_indices[&GPUQueueType::Graphics],
-      )?;
-    let render_cmd_buffers = render_cmd_pool
-      .allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 3)?;
+    let render_cmd_pool = vk_context.queues[&GPUQueueType::Graphics].create_ad_command_pool(
+      vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
+      vk_context.qf_indices[&GPUQueueType::Graphics],
+    )?;
+    let render_cmd_buffers =
+      render_cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 3)?;
+    let mut render_semaphores = vec![];
+    for _ in 0..3 {
+      render_semaphores.push(vk_context.create_ad_semaphore(vk::SemaphoreCreateFlags::default())?)
+    }
+    let mut render_fences = vec![];
+    for _ in 0..3 {
+      render_fences.push(vk_context.create_ad_fence(vk::FenceCreateFlags::SIGNALED)?)
+    }
 
-    let transfer_cmd_pool = vk_context
-      .create_ad_command_pool(
-        vk::CommandPoolCreateFlags::TRANSIENT,
-        vk_context.qf_indices[&GPUQueueType::Transfer]
-      )?;
+    let transfer_cmd_pool = vk_context.queues[&GPUQueueType::Transfer].create_ad_command_pool(
+      vk::CommandPoolCreateFlags::TRANSIENT,
+      vk_context.qf_indices[&GPUQueueType::Transfer],
+    )?;
 
     let gen_allocator = Arc::new(Mutex::new(vk_context.create_allocator()?));
 
@@ -86,7 +94,7 @@ impl RenderManager {
       &PathBuf::from("./background.png"),
       vk::ImageUsageFlags::TRANSFER_SRC,
       vk::SampleCountFlags::TYPE_1,
-      1
+      1,
     )?;
 
     Ok(Self {
@@ -95,9 +103,11 @@ impl RenderManager {
       image_acquire_fence,
       render_cmd_pool,
       render_cmd_buffers,
+      render_semaphores,
+      render_fences,
       transfer_cmd_pool,
       gen_allocator,
-      bg_image
+      bg_image,
     })
   }
 
@@ -106,13 +116,72 @@ impl RenderManager {
       .swapchain
       .acquire_next_image(None, Some(&self.image_acquire_fence))
       .map_err(|e| format!("at acquiring next image: {e}"))?;
+    if refresh_needed {
+      let _ = self
+        .swapchain
+        .refresh_resolution()
+        .inspect_err(|e| eprintln!("at refreshing swapchain res: {e}"));
+      return Ok(());
+    }
     self.image_acquire_fence.wait(999999999)?;
     self.image_acquire_fence.reset()?;
 
-    self
-      .render_cmd_buffers[image_idx as usize]
+    self.render_fences[image_idx as usize].wait(999999999)?;
+    self.render_fences[image_idx as usize].reset()?;
+
+    if !self.swapchain.is_initialized() {
+      self
+        .swapchain
+        .initialize(
+          &self.render_cmd_buffers[image_idx as usize],
+          self.vk_context.queues[&GPUQueueType::Graphics].qf_idx,
+        )
+        .map_err(|e| format!("at adding init cmds:  {e}"))?;
+      unsafe {
+        self
+          .vk_context
+          .vk_device
+          .queue_submit(
+            self.vk_context.queues[&GPUQueueType::Graphics].inner,
+            &[vk::SubmitInfo::default()
+              .command_buffers(&[self.render_cmd_buffers[image_idx as usize].inner])],
+            self.image_acquire_fence.inner,
+          )
+          .map_err(|e| format!("error submitting cmds: {e}"))?;
+        self.image_acquire_fence.wait(999999999)?;
+        self.image_acquire_fence.reset()?;
+        self.swapchain.set_initialized();
+      }
+    }
+
+    // self.render_cmd_buffers[image_idx as usize].reset()?;
+    self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::default()))
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
+
+    self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
+      vk::PipelineStageFlags::TRANSFER,
+      vk::PipelineStageFlags::TRANSFER,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &[vk::ImageMemoryBarrier::default()
+        .image(self.swapchain.images[image_idx as usize])
+        .subresource_range(
+          vk::ImageSubresourceRange::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .layer_count(1)
+            .base_array_layer(0)
+            .level_count(1)
+            .base_mip_level(0),
+        )
+        .src_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
+        .dst_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
+        .src_access_mask(vk::AccessFlags::NONE)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .old_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)],
+    );
 
     self.render_cmd_buffers[image_idx as usize].blit_image(
       self.bg_image.inner,
@@ -120,11 +189,13 @@ impl RenderManager {
       self.swapchain.images[image_idx as usize],
       vk::ImageLayout::TRANSFER_DST_OPTIMAL,
       &[vk::ImageBlit::default()
-        .src_subresource(vk::ImageSubresourceLayers::default()
-          .aspect_mask(vk::ImageAspectFlags::COLOR)
-          .mip_level(0)
-          .base_array_layer(0)
-          .layer_count(1))
+        .src_subresource(
+          vk::ImageSubresourceLayers::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(1),
+        )
         .src_offsets(self.bg_image.full_range_offset_3d())
         .dst_subresource(
           vk::ImageSubresourceLayers::default()
@@ -134,21 +205,61 @@ impl RenderManager {
             .layer_count(1),
         )
         .dst_offsets(self.swapchain.full_range_offset_3d())],
-      vk::Filter::NEAREST
+      vk::Filter::NEAREST,
     );
 
-    self
-      .render_cmd_buffers[image_idx as usize]
+    self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
+      vk::PipelineStageFlags::TRANSFER,
+      vk::PipelineStageFlags::TRANSFER,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &[vk::ImageMemoryBarrier::default()
+        .image(self.swapchain.images[image_idx as usize])
+        .subresource_range(
+          vk::ImageSubresourceRange::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .layer_count(1)
+            .base_array_layer(0)
+            .level_count(1)
+            .base_mip_level(0),
+        )
+        .src_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
+        .dst_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
+        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+        .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)],
+    );
+
+    self.render_cmd_buffers[image_idx as usize]
       .end()
       .map_err(|e| format!("at ending render cmd buffer: {e}"))?;
+    unsafe {
+      self
+        .vk_context
+        .vk_device
+        .queue_submit(
+          self.vk_context.queues[&GPUQueueType::Graphics].inner,
+          &[vk::SubmitInfo::default()
+            .command_buffers(&[self.render_cmd_buffers[image_idx as usize].inner])
+            .signal_semaphores(&[self.render_semaphores[image_idx as usize].inner])],
+          self.render_fences[image_idx as usize].inner,
+        )
+        .map_err(|e| format!("error submitting cmds: {e}"))?;
+    }
 
-    self.swapchain.present_image(image_idx, vec![])?;
+    self.swapchain.present_image(image_idx, vec![&self.render_semaphores[image_idx as usize]])?;
 
     Ok(())
   }
+}
 
-  pub fn refresh_swapchain_resolution(&mut self) {
-    let _ = self.swapchain.refresh_resolution()
-      .inspect_err(|e| eprintln!("error while refreshing swapchain resolution: {e}"));
+impl Drop for RenderManager {
+  fn drop(&mut self) {
+    for fence in self.render_fences.iter() {
+      let _ = fence.wait(999999999);
+      let _ = fence.reset();
+    }
   }
 }

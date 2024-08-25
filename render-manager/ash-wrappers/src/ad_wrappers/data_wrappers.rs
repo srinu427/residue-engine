@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
 use ash::vk;
 pub use gpu_allocator::vulkan::{Allocation, Allocator};
+use std::sync::{Arc, Mutex};
 
 pub struct AdBuffer {
   pub inner: vk::Buffer,
@@ -11,9 +11,7 @@ pub struct AdBuffer {
   pub allocation: Option<Allocation>,
 }
 
-impl AdBuffer {
-
-}
+impl AdBuffer {}
 
 impl Drop for AdBuffer {
   fn drop(&mut self) {
@@ -42,10 +40,7 @@ impl AdImage2D {
   pub fn full_range_offset_3d(&self) -> [vk::Offset3D; 2] {
     [
       vk::Offset3D::default(),
-      vk::Offset3D::default()
-        .x(self.resolution.width as i32)
-        .y(self.resolution.height as i32)
-        .z(1),
+      vk::Offset3D::default().x(self.resolution.width as i32).y(self.resolution.height as i32).z(1),
     ]
   }
 }
@@ -55,14 +50,11 @@ impl Drop for AdImage2D {
     unsafe {
       self.vk_device.destroy_image(self.inner, None);
     }
-    let _ = self
-      .allocator
-      .as_ref()
-      .map(|mtx_altr|
+    let _ = self.allocator.as_ref().map(|mtx_altr| {
       mtx_altr
         .lock()
         .map(|mut altr| self.allocation.take().map(|altn| altr.free(altn)))
         .inspect_err(|e| eprintln!("at getting allocator lock while image destroy: {e}"))
-      );
+    });
   }
 }

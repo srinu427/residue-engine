@@ -1,8 +1,10 @@
+use crate::ad_wrappers::AdQueue;
 use ash::{ext, khr, vk};
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, CStr};
+use std::sync::Arc;
 
 unsafe extern "system" fn vulkan_debug_callback(
   message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -52,7 +54,7 @@ pub fn make_debug_mgr_create_info() -> vk::DebugUtilsMessengerCreateInfoEXT<'sta
 pub unsafe fn init_instance(
   entry: &ash::Entry,
   layers: Vec<*const c_char>,
-  extensions: Vec<*const c_char>
+  extensions: Vec<*const c_char>,
 ) -> Result<ash::Instance, String> {
   let mandatory_layers = HashSet::from([
     #[cfg(debug_assertions)]
@@ -116,7 +118,6 @@ pub unsafe fn init_instance(
     .create_instance(&vk_instance_create_info, None)
     .map_err(|e| format!("at instance create: {e}"))
 }
-
 
 fn select_g_queue(gpu_queue_props: &[vk::QueueFamilyProperties]) -> Option<u32> {
   let mut selected_queue = None;
@@ -228,14 +229,13 @@ pub unsafe fn select_gpu_queues(
   return Some([graphics_q_idx, compute_q_idx, transfer_q_idx, present_q_idx]);
 }
 
-
 pub unsafe fn create_device_and_queues(
   vk_instance: &ash::Instance,
   gpu: vk::PhysicalDevice,
   extensions: Vec<*const c_char>,
   features: vk::PhysicalDeviceFeatures,
   queue_indices: [u32; 4],
-) -> Result<(ash::Device, [vk::Queue; 4]), String>{
+) -> Result<(Arc<ash::Device>, Vec<AdQueue>), String> {
   let queue_priorities: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
   let gpu_q_props = vk_instance.get_physical_device_queue_family_properties(gpu);
 
@@ -264,18 +264,24 @@ pub unsafe fn create_device_and_queues(
     .enabled_extension_names(&extensions)
     .enabled_features(&features);
 
-  let device = vk_instance
-    .create_device(gpu, &device_create_info, None)
-    .map_err(|e| format!("at logic device init: {e}"))?;
+  let device = Arc::new(
+    vk_instance
+      .create_device(gpu, &device_create_info, None)
+      .map_err(|e| format!("at logic device init: {e}"))?,
+  );
 
   let mut queues = Vec::with_capacity(4);
   for x in queue_indices {
     let cur_q_idx = q_idx_map.get_mut(&x).ok_or("invalid queue".to_string())?;
-    queues.push(device.get_device_queue(x, *cur_q_idx - 1));
+    queues.push(AdQueue {
+      vk_device: Arc::clone(&device),
+      qf_idx: x,
+      inner: device.get_device_queue(x, *cur_q_idx - 1),
+    });
     if *cur_q_idx != 1 {
       *cur_q_idx -= 1;
     }
   }
 
-  Ok((device, [queues[0], queues[1], queues[2], queues[3]]))
+  Ok((device, queues))
 }
