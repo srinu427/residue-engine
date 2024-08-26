@@ -95,7 +95,7 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::RedrawRequested => {
         self.render_manager.as_mut().map(
           |x| for _ in 0..3 {
-            if let Ok(d_res) = x.draw(){
+            if let Ok(d_res) = x.draw() {
               if !d_res {break}
             }
           }
