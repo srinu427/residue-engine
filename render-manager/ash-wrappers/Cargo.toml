@@ -9,3 +9,4 @@ ash-window = "0.13.0"
 raw-window-handle = "0.6.2"
 gpu-allocator = {git = "https://github.com/Traverse-Research/gpu-allocator.git", branch = "ash-0.38"}
 image = "0.25.2"
+spirv_cross = { version = "0.23.1", features = ["glsl"] }

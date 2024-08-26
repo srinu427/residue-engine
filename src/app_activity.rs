@@ -59,6 +59,7 @@ impl ApplicationHandler for AppActivity {
     window_id: WindowId,
     event: WindowEvent,
   ) {
+    // println!("event: {event:?}");
     match event {
       WindowEvent::ActivationTokenDone { .. } => {}
       WindowEvent::Resized(_) => {}
@@ -91,7 +92,15 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::ScaleFactorChanged { .. } => {}
       WindowEvent::ThemeChanged(_) => {}
       WindowEvent::Occluded(_) => {}
-      WindowEvent::RedrawRequested => {}
+      WindowEvent::RedrawRequested => {
+        self.render_manager.as_mut().map(
+          |x| for _ in 0..3 {
+            if let Ok(d_res) = x.draw(){
+              if !d_res {break}
+            }
+          }
+        );
+      }
     }
   }
 

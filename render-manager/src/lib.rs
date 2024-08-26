@@ -63,12 +63,14 @@ impl RenderManager {
     )?;
 
     let image_acquire_fence = vk_context.create_ad_fence(vk::FenceCreateFlags::default())?;
-    let render_cmd_pool = vk_context.queues[&GPUQueueType::Graphics].create_ad_command_pool(
-      vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
-      vk_context.qf_indices[&GPUQueueType::Graphics],
-    )?;
+
+    let render_cmd_pool = vk_context
+      .queues[&GPUQueueType::Graphics]
+      .create_ad_command_pool(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)?;
+
     let render_cmd_buffers =
       render_cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 3)?;
+
     let mut render_semaphores = vec![];
     for _ in 0..3 {
       render_semaphores.push(vk_context.create_ad_semaphore(vk::SemaphoreCreateFlags::default())?)
@@ -78,10 +80,9 @@ impl RenderManager {
       render_fences.push(vk_context.create_ad_fence(vk::FenceCreateFlags::SIGNALED)?)
     }
 
-    let transfer_cmd_pool = vk_context.queues[&GPUQueueType::Transfer].create_ad_command_pool(
-      vk::CommandPoolCreateFlags::TRANSIENT,
-      vk_context.qf_indices[&GPUQueueType::Transfer],
-    )?;
+    let transfer_cmd_pool = vk_context
+      .queues[&GPUQueueType::Transfer]
+      .create_ad_command_pool(vk::CommandPoolCreateFlags::TRANSIENT)?;
 
     let gen_allocator = Arc::new(Mutex::new(vk_context.create_allocator()?));
 
@@ -111,7 +112,7 @@ impl RenderManager {
     })
   }
 
-  pub fn draw(&mut self) -> Result<(), String> {
+  pub fn draw(&mut self) -> Result<bool, String> {
     let (image_idx, refresh_needed) = self
       .swapchain
       .acquire_next_image(None, Some(&self.image_acquire_fence))
@@ -121,7 +122,7 @@ impl RenderManager {
         .swapchain
         .refresh_resolution()
         .inspect_err(|e| eprintln!("at refreshing swapchain res: {e}"));
-      return Ok(());
+      return Ok(true)
     }
     self.image_acquire_fence.wait(999999999)?;
     self.image_acquire_fence.reset()?;
@@ -132,29 +133,19 @@ impl RenderManager {
     if !self.swapchain.is_initialized() {
       self
         .swapchain
-        .initialize(
-          &self.render_cmd_buffers[image_idx as usize],
-          self.vk_context.queues[&GPUQueueType::Graphics].qf_idx,
-        )
+        .initialize(&self.render_cmd_buffers[image_idx as usize])
         .map_err(|e| format!("at adding init cmds:  {e}"))?;
-      unsafe {
-        self
-          .vk_context
-          .vk_device
-          .queue_submit(
-            self.vk_context.queues[&GPUQueueType::Graphics].inner,
-            &[vk::SubmitInfo::default()
-              .command_buffers(&[self.render_cmd_buffers[image_idx as usize].inner])],
-            self.image_acquire_fence.inner,
-          )
-          .map_err(|e| format!("error submitting cmds: {e}"))?;
-        self.image_acquire_fence.wait(999999999)?;
-        self.image_acquire_fence.reset()?;
-        self.swapchain.set_initialized();
-      }
+
+      self
+        .render_cmd_buffers[image_idx as usize]
+        .submit(&[], &[], Some(&self.image_acquire_fence))
+        .map_err(|e| format!("error submitting cmds: {e}"))?;
+
+      self.image_acquire_fence.wait(999999999)?;
+      self.image_acquire_fence.reset()?;
+      self.swapchain.set_initialized();
     }
 
-    // self.render_cmd_buffers[image_idx as usize].reset()?;
     self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::default()))
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
@@ -175,9 +166,9 @@ impl RenderManager {
             .level_count(1)
             .base_mip_level(0),
         )
-        .src_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
-        .dst_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
-        .src_access_mask(vk::AccessFlags::NONE)
+        .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+        .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
         .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .old_layout(vk::ImageLayout::PRESENT_SRC_KHR)
         .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)],
@@ -224,8 +215,8 @@ impl RenderManager {
             .level_count(1)
             .base_mip_level(0),
         )
-        .src_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
-        .dst_queue_family_index(self.vk_context.qf_indices[&GPUQueueType::Graphics])
+        .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+        .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
         .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
@@ -235,23 +226,24 @@ impl RenderManager {
     self.render_cmd_buffers[image_idx as usize]
       .end()
       .map_err(|e| format!("at ending render cmd buffer: {e}"))?;
-    unsafe {
-      self
-        .vk_context
-        .vk_device
-        .queue_submit(
-          self.vk_context.queues[&GPUQueueType::Graphics].inner,
-          &[vk::SubmitInfo::default()
-            .command_buffers(&[self.render_cmd_buffers[image_idx as usize].inner])
-            .signal_semaphores(&[self.render_semaphores[image_idx as usize].inner])],
-          self.render_fences[image_idx as usize].inner,
-        )
-        .map_err(|e| format!("error submitting cmds: {e}"))?;
+
+    self
+      .render_cmd_buffers[image_idx as usize]
+      .submit(
+        &[&self.render_semaphores[image_idx as usize]],
+        &[],
+        Some(&self.render_fences[image_idx as usize])
+      )
+      .map_err(|e| format!("error submitting cmds: {e}"))?;
+
+    if let Err(e) = self
+      .swapchain
+      .present_image(image_idx, vec![&self.render_semaphores[image_idx as usize]]) {
+      if e.ends_with("ERROR_OUT_OF_DATE_KHR") {
+        return Ok(true)
+      }
     }
-
-    self.swapchain.present_image(image_idx, vec![&self.render_semaphores[image_idx as usize]])?;
-
-    Ok(())
+    Ok(false)
   }
 }
 

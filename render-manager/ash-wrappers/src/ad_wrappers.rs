@@ -104,7 +104,6 @@ impl AdSwapchain {
       self.inner = new_swapchain;
       self.images = new_images;
       self.resolution = surface_caps.current_extent;
-      println!("new swapchain res: {:?}", surface_caps.current_extent)
     }
     self.initialized = false;
     Ok(())
@@ -174,7 +173,7 @@ impl AdSwapchain {
     self.initialized = true;
   }
 
-  pub fn initialize(&mut self, cmd_buffer: &AdCommandBuffer, q_id: u32) -> Result<(), String> {
+  pub fn initialize(&mut self, cmd_buffer: &AdCommandBuffer) -> Result<(), String> {
     if !self.initialized {
       cmd_buffer.begin(vk::CommandBufferBeginInfo::default())?;
       cmd_buffer.pipeline_barrier(
@@ -197,8 +196,8 @@ impl AdSwapchain {
                   .level_count(1)
                   .base_mip_level(0),
               )
-              .src_queue_family_index(q_id)
-              .dst_queue_family_index(q_id)
+              .src_queue_family_index(cmd_buffer.qf_idx)
+              .dst_queue_family_index(cmd_buffer.qf_idx)
               .src_access_mask(vk::AccessFlags::NONE)
               .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
               .old_layout(vk::ImageLayout::UNDEFINED)
@@ -236,6 +235,7 @@ impl Drop for ADRenderPass {
 pub struct AdCommandPool {
   pub(crate) vk_device: Arc<ash::Device>,
   pub inner: vk::CommandPool,
+  pub(crate) queue: vk::Queue,
   pub qf_idx: u32,
 }
 
@@ -260,6 +260,8 @@ impl AdCommandPool {
           vk_device: Arc::clone(&self.vk_device),
           pool: self.inner,
           inner: x,
+          queue: self.queue,
+          qf_idx: self.qf_idx,
         })
         .collect::<Vec<_>>()
     };
@@ -279,6 +281,8 @@ pub struct AdCommandBuffer {
   pub(crate) vk_device: Arc<ash::Device>,
   pool: vk::CommandPool,
   pub inner: vk::CommandBuffer,
+  pub(crate) queue: vk::Queue,
+  pub qf_idx: u32,
 }
 
 impl AdCommandBuffer {
@@ -294,6 +298,30 @@ impl AdCommandBuffer {
   pub fn end(&self) -> Result<(), String> {
     unsafe {
       self.vk_device.end_command_buffer(self.inner).map_err(|e| format!("at cmd buffer end: {e}"))
+    }
+  }
+
+  pub fn submit(
+    &self,
+    signal_semaphores: &[&sync_wrappers::AdSemaphore],
+    wait_semaphores: &[(&sync_wrappers::AdSemaphore, vk::PipelineStageFlags)],
+    fence: Option<&sync_wrappers::AdFence>
+  ) -> Result<(), String> {
+    unsafe {
+      self
+        .vk_device
+        .queue_submit(
+          self.queue,
+          &[
+            vk::SubmitInfo::default()
+              .command_buffers(&[self.inner])
+              .signal_semaphores(&signal_semaphores.iter().map(|x| x.inner).collect::<Vec<_>>())
+              .wait_semaphores(&wait_semaphores.iter().map(|x| x.0.inner).collect::<Vec<_>>())
+              .wait_dst_stage_mask(&wait_semaphores.iter().map(|x| x.1).collect::<Vec<_>>())
+          ],
+          fence.map_or(vk::Fence::null(), |x| x.inner)
+        )
+        .map_err(|e| format!("error submitting cmd buffer: {e}"))
     }
   }
 
@@ -431,21 +459,34 @@ impl AdQueue {
   pub fn create_ad_command_pool(
     &self,
     flags: vk::CommandPoolCreateFlags,
-    queue_idx: u32,
   ) -> Result<AdCommandPool, String> {
     unsafe {
       let cmd_pool = self
         .vk_device
         .create_command_pool(
-          &vk::CommandPoolCreateInfo::default().flags(flags).queue_family_index(queue_idx),
+          &vk::CommandPoolCreateInfo::default().flags(flags).queue_family_index(self.qf_idx),
           None,
         )
         .map_err(|e| format!("at vk cmd pool create: {e}"))?;
       Ok(AdCommandPool {
         vk_device: Arc::clone(&self.vk_device),
         inner: cmd_pool,
+        queue: self.inner,
         qf_idx: self.qf_idx,
       })
+    }
+  }
+
+  pub fn submit(
+    &self,
+    submits: &[vk::SubmitInfo],
+    fence: &sync_wrappers::AdFence
+  ) -> Result<(), String> {
+    unsafe {
+      self
+        .vk_device
+        .queue_submit(self.inner, submits, fence.inner)
+        .map_err(|e| format!("error submitting to queue: {e}"))
     }
   }
 

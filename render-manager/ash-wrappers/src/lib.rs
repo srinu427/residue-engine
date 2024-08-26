@@ -17,6 +17,7 @@ use ad_wrappers::data_wrappers::{AdBuffer, AdImage2D};
 use ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
 use ad_wrappers::{AdCommandPool, AdSurface, AdSwapchain};
 pub use raw_window_handle;
+use spirv_cross::{spirv, glsl};
 
 pub struct VkInstances {
   surface_instance: Arc<khr::surface::Instance>,
@@ -82,7 +83,6 @@ pub enum GPUQueueType {
 pub struct VkContext {
   swapchain_device: Arc<khr::swapchain::Device>,
   pub queues: HashMap<GPUQueueType, Arc<AdQueue>>,
-  pub qf_indices: HashMap<GPUQueueType, u32>,
   pub vk_device: Arc<ash::Device>,
   pub gpu: vk::PhysicalDevice,
   #[cfg(debug_assertions)]
@@ -144,12 +144,6 @@ impl VkContext {
         dbg_utils_messenger,
         gpu,
         vk_device,
-        qf_indices: HashMap::from([
-          (GPUQueueType::Graphics, q_indices[0]),
-          (GPUQueueType::Compute, q_indices[1]),
-          (GPUQueueType::Transfer, q_indices[2]),
-          (GPUQueueType::Present, q_indices[3]),
-        ]),
         queues: HashMap::from([
           (GPUQueueType::Graphics, g_queue),
           (GPUQueueType::Compute, c_queue),
@@ -417,8 +411,8 @@ impl VkContext {
         .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .old_layout(vk::ImageLayout::UNDEFINED)
         .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-        .src_queue_family_index(self.qf_indices[&GPUQueueType::Transfer])
-        .dst_queue_family_index(self.qf_indices[&GPUQueueType::Transfer])],
+        .src_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)
+        .dst_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)],
     );
     cmd_buffer.copy_buffer_to_image(
       stage_buffer.inner,
@@ -457,22 +451,16 @@ impl VkContext {
         .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
         .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .src_queue_family_index(self.qf_indices[&GPUQueueType::Transfer])
-        .dst_queue_family_index(self.qf_indices[&GPUQueueType::Transfer])],
+        .src_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)
+        .dst_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)],
     );
 
     cmd_buffer.end()?;
 
-    unsafe {
-      self
-        .vk_device
-        .queue_submit(
-          self.queues[&GPUQueueType::Transfer].inner,
-          &[vk::SubmitInfo::default().command_buffers(&[cmd_buffer.inner])],
-          upload_fence.inner,
-        )
-        .map_err(|e| format!("at copying data to image: {e}"))?;
-    }
+    cmd_buffer
+      .submit(&[], &[], Some(&upload_fence))
+      .map_err(|e| format!("at copying data to image: {e}"))?;
+
     upload_fence.wait(999999999).map_err(|e| format!("at waiting for fence: {e}"))?;
 
     Ok(image_2d)
@@ -490,4 +478,14 @@ impl Drop for VkContext {
         .destroy_debug_utils_messenger(self.dbg_utils_messenger, None);
     }
   }
+}
+
+pub fn parse_spv_resources(path: &Path) -> Result<spirv::Ast<glsl::Target>, String> {
+  let mut file = std::fs::File::open(path)
+    .map_err(|e| format!("at opening spv file: {e}"))?;
+  let words = ash::util::read_spv(&mut file)
+    .map_err(|e| format!("at reading spv file: {e}"))?;
+  let module = spirv::Module::from_words(&words);
+  spirv::Ast::<glsl::Target>::parse(&module)
+    .map_err(|e| format!("at parsing spv file: {e}"))
 }
