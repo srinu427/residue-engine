@@ -1,14 +1,23 @@
+use std::borrow::Borrow;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ash_wrappers::ad_wrappers::data_wrappers::{AdImage2D, Allocator};
+use ash_wrappers::ad_wrappers::data_wrappers::{AdBuffer, AdImage2D, Allocator};
 use ash_wrappers::ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
 pub use ash_wrappers::ad_wrappers::AdSurface;
-use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdSwapchain};
+use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdPipeline, AdPipelineLayout, AdRenderPass, AdSwapchain};
 pub use ash_wrappers::VkInstances;
 use ash_wrappers::{vk, GPUQueueType, MemoryLocation, VkContext};
 
 pub struct RenderManager {
+  triangle_pipeline: AdPipeline,
+  triangle_pipeline_layout: AdPipelineLayout,
+  triangle_dset: AdDescriptorSet,
+  triangle_dset_pool: AdDescriptorPool,
+  triangle_dset_layout: AdDescriptorSetLayout,
+  triangle_render_pass: AdRenderPass,
+  triangle_out_images: Vec<AdImage2D>,
+  triangle_vb: AdBuffer,
   bg_image: AdImage2D,
   gen_allocator: Arc<Mutex<Allocator>>,
   transfer_cmd_pool: AdCommandPool,
@@ -98,6 +107,140 @@ impl RenderManager {
       1,
     )?;
 
+    let mut triangle_out_images = vec![];
+    for i in 0..3 {
+      triangle_out_images.push(vk_context.create_ad_image_2d(
+        Arc::clone(&gen_allocator),
+        MemoryLocation::GpuOnly,
+        &format!("triangle_out_image_{i}"),
+        vk::Format::R8G8B8A8_UNORM,
+        swapchain_resolution,
+        vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+        vk::SampleCountFlags::TYPE_1,
+        1
+      )?);
+    }
+
+    let tri_verts = [
+      [0.0f32, 0.0f32, 1.0f32, 1.0f32],
+      [1.0f32, 0.0f32, 1.0f32, 1.0f32],
+      [1.0f32, 1.0f32, 1.0f32, 1.0f32],
+    ];
+
+    let tmp_cmd_buffer = transfer_cmd_pool
+    .allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?
+    .remove(0);
+
+    let triangle_vb = vk_context.create_ad_buffer_from_data(
+      Arc::clone(&gen_allocator),
+      MemoryLocation::GpuOnly,
+      "triangle",
+      vk::BufferCreateFlags::default(),
+      vk::BufferUsageFlags::STORAGE_BUFFER,
+      unsafe {std::slice::from_raw_parts(tri_verts.as_ptr() as *const u8, 48)},
+      &tmp_cmd_buffer
+    )?;
+
+    let triangle_dset_layout = vk_context.create_ad_descriptor_set_layout(&[
+      vk::DescriptorSetLayoutBinding::default()
+        .stage_flags(vk::ShaderStageFlags::VERTEX)
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+        .descriptor_count(1)
+    ])?;
+
+    let triangle_dset_pool = vk_context.create_ad_descriptor_pool(
+      1,
+      &[vk::DescriptorPoolSize::default().descriptor_count(1)]
+    )?;
+
+    let triangle_dset = triangle_dset_pool.allocate_descriptor_sets(&[&triangle_dset_layout])?.remove(0);
+
+    let triangle_render_pass = vk_context
+      .create_ad_render_pass_builder(vk::RenderPassCreateFlags::default())
+      .add_attachment(
+        vk::AttachmentDescription::default()
+          .format(vk::Format::R8G8B8A8_UNORM)
+          .samples(vk::SampleCountFlags::TYPE_1)
+          .initial_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+          .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL),
+      )
+      .add_sub_pass(
+        vk::SubpassDescription::default()
+          .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+          .color_attachments(&[vk::AttachmentReference::default()
+            .attachment(0)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)]),
+      )
+      .add_sub_pass_dependency(
+        vk::SubpassDependency::default()
+          .src_subpass(vk::SUBPASS_EXTERNAL)
+          .dst_subpass(0)
+          .src_stage_mask(vk::PipelineStageFlags::TRANSFER)
+          .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+          .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+          .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE),
+      )
+      .add_sub_pass_dependency(
+        vk::SubpassDependency::default()
+          .src_subpass(0)
+          .dst_subpass(vk::SUBPASS_EXTERNAL)
+          .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+          .dst_stage_mask(vk::PipelineStageFlags::TRANSFER)
+          .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+          .dst_access_mask(vk::AccessFlags::TRANSFER_READ),
+      )
+      .build()?;
+
+    let mut vert_shader = vk_context
+      .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.vert.spv"))?;
+    let mut frag_shader = vk_context
+      .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.frag.spv"))?;
+
+    let shader_stages = [
+      vk::PipelineShaderStageCreateInfo::default()
+        .module(vert_shader.inner)
+        .stage(vk::ShaderStageFlags::VERTEX)
+        .name(c"main"),
+      vk::PipelineShaderStageCreateInfo::default()
+        .module(frag_shader.inner)
+        .stage(vk::ShaderStageFlags::FRAGMENT)
+        .name(c"main"),
+    ];
+
+    let triangle_pipeline_dyn_state = vk::PipelineDynamicStateCreateInfo::default()
+      .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+    let triangle_pipeline_vp_state = vk::PipelineViewportStateCreateInfo::default()
+      .scissor_count(1)
+      .viewport_count(1);
+    let triangle_msaa = vk::PipelineMultisampleStateCreateInfo::default()
+      .sample_shading_enable(false)
+      .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+
+    let triangle_pipeline_layout = vk_context.create_ad_pipeline_layout(&[&triangle_dset_layout])?;
+
+    let empty_vert_input_info = vk::PipelineVertexInputStateCreateInfo::default();
+    let triangle_input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
+      .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default();
+
+    let triangle_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
+      .render_pass(triangle_render_pass.inner)
+      .subpass(0)
+      .layout(triangle_pipeline_layout.inner)
+      .stages(&shader_stages)
+      .vertex_input_state(&empty_vert_input_info)
+      .input_assembly_state(&triangle_input_assembly_info)
+      .dynamic_state(&triangle_pipeline_dyn_state)
+      .viewport_state(&triangle_pipeline_vp_state)
+      .multisample_state(&triangle_msaa)
+      .rasterization_state(&triangle_rasterizer_info);
+    
+    let triangle_pipeline = vk_context.create_ad_g_pipeline(triangle_pipeline_info)?;
+
+    vert_shader.manual_destroy();
+    frag_shader.manual_destroy();
+
     Ok(Self {
       vk_context,
       swapchain,
@@ -109,6 +252,14 @@ impl RenderManager {
       transfer_cmd_pool,
       gen_allocator,
       bg_image,
+      triangle_vb,
+      triangle_out_images,
+      triangle_render_pass,
+      triangle_dset_layout,
+      triangle_dset_pool,
+      triangle_dset,
+      triangle_pipeline_layout,
+      triangle_pipeline,
     })
   }
 

@@ -1,5 +1,5 @@
 pub mod ad_wrappers;
-mod builders;
+pub mod builders;
 mod init_helpers;
 
 pub use ash::{ext, khr, vk};
@@ -8,16 +8,18 @@ use gpu_allocator::vulkan::{
 };
 pub use gpu_allocator::MemoryLocation;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+pub use raw_window_handle;
+use spirv_cross::{spirv, glsl};
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::ad_wrappers::AdQueue;
 use ad_wrappers::data_wrappers::{AdBuffer, AdImage2D};
 use ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
-use ad_wrappers::{AdCommandPool, AdSurface, AdSwapchain};
-pub use raw_window_handle;
-use spirv_cross::{spirv, glsl};
+use ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSetLayout, AdPipeline, AdPipelineLayout, AdShaderModule, AdSurface, AdSwapchain};
+use builders::AdRenderPassBuilder;
 
 pub struct VkInstances {
   surface_instance: Arc<khr::surface::Instance>,
@@ -46,10 +48,8 @@ impl VkInstances {
     }
   }
 
-  pub fn make_surface(
-    &self,
-    window: &(impl HasWindowHandle + HasDisplayHandle),
-  ) -> Result<AdSurface, String> {
+  pub fn make_surface(&self, window: &(impl HasWindowHandle + HasDisplayHandle))
+    -> Result<AdSurface, String> {
     unsafe {
       ash_window::create_surface(
         &self.entry,
@@ -66,9 +66,7 @@ impl VkInstances {
 
 impl Drop for VkInstances {
   fn drop(&mut self) {
-    unsafe {
-      self.vk_instance.destroy_instance(None);
-    }
+    unsafe { self.vk_instance.destroy_instance(None); }
   }
 }
 
@@ -210,10 +208,8 @@ impl VkContext {
     }
   }
 
-  pub fn create_ad_semaphore(
-    &self,
-    flags: vk::SemaphoreCreateFlags,
-  ) -> Result<AdSemaphore, String> {
+  pub fn create_ad_semaphore(&self, flags: vk::SemaphoreCreateFlags)
+    -> Result<AdSemaphore, String> {
     unsafe {
       let semaphore = self
         .vk_device
@@ -271,6 +267,52 @@ impl VkContext {
         allocation: Some(allocation),
       })
     }
+  }
+
+  pub fn create_ad_buffer_from_data(
+    &self,
+    allocator: Arc<Mutex<Allocator>>,
+    mem_location: MemoryLocation,
+    name: &str,
+    flags: vk::BufferCreateFlags,
+    usage: vk::BufferUsageFlags,
+    data: &[u8],
+    cmd_buffer: &AdCommandBuffer
+  ) -> Result<AdBuffer, String> {
+    let mut stage_buffer = self.create_ad_buffer(
+      Arc::clone(&allocator),
+      MemoryLocation::CpuToGpu,
+      &format!("{name}_stage_buffer"),
+      flags,
+      data.len() as u64,
+      vk::BufferUsageFlags::TRANSFER_SRC,
+    )?;
+    stage_buffer
+      .allocation
+      .as_mut()
+      .map(|alloc| {alloc.mapped_slice_mut().map(|x| {x.copy_from_slice(data)})})
+      .ok_or("Error allocating stage buffer")?;
+    let buffer = self.create_ad_buffer(
+      Arc::clone(&allocator),
+      mem_location,
+      name,
+      flags,
+      data.len() as u64,
+      usage | vk::BufferUsageFlags::TRANSFER_DST,
+    )?;
+    cmd_buffer.begin(vk::CommandBufferBeginInfo::default())?;
+    cmd_buffer.copy_buffer_to_buffer(
+      stage_buffer.inner,
+      buffer.inner,
+      &[vk::BufferCopy{ src_offset: 0, dst_offset: 0, size: data.len() as u64 }]
+    );
+    cmd_buffer.end()?;
+
+    let tmp_fence = self.create_ad_fence(vk::FenceCreateFlags::default())?;
+    cmd_buffer.submit(&[], &[], Some(&tmp_fence))?;
+    tmp_fence.wait(999999999)?;
+
+    Ok(buffer)
   }
 
   pub fn create_allocator(&self) -> Result<Allocator, String> {
@@ -464,6 +506,90 @@ impl VkContext {
     upload_fence.wait(999999999).map_err(|e| format!("at waiting for fence: {e}"))?;
 
     Ok(image_2d)
+  }
+
+  pub fn create_ad_render_pass_builder(&self, flags: vk::RenderPassCreateFlags) -> AdRenderPassBuilder {
+    AdRenderPassBuilder::new(Arc::clone(&self.vk_device), flags)
+  }
+
+  pub fn create_ad_shader(&self, create_info: &vk::ShaderModuleCreateInfo)
+    -> Result<AdShaderModule, String> {
+    unsafe {
+      let shader_module = self.vk_device.create_shader_module(create_info, None)
+        .map_err(|e| format!("error creating vk shader module: {e}"))?;
+      Ok(AdShaderModule {
+        vk_device: Arc::clone(&self.vk_device),
+        inner: shader_module,
+        dropped: false,
+      })
+    }
+  }
+
+  pub fn create_ad_shader_from_spv_file(&self, file_path: &Path) -> Result<AdShaderModule, String> {
+    let mut fr = fs::File::open(file_path)
+      .map_err(|e| format!("error opening file {:?}: {e}", file_path))?;
+    let shader_code = ash::util::read_spv(&mut fr)
+      .map_err(|e| format!("error reading ords from spv file: {e}"))?;
+    let create_info = vk::ShaderModuleCreateInfo::default().code(&shader_code);
+    self.create_ad_shader(&create_info)
+  }
+
+  pub fn create_ad_descriptor_set_layout(&self, bindings: &[vk::DescriptorSetLayoutBinding])
+    -> Result<AdDescriptorSetLayout, String> {
+    unsafe {
+      let descriptor_set_layout = self.vk_device.create_descriptor_set_layout(
+        &vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings),
+        None
+      )
+        .map_err(|e| format!("at creating vk descriptor set layout: {e}"))?;
+      Ok(AdDescriptorSetLayout { vk_device: Arc::clone(&self.vk_device), inner: descriptor_set_layout })
+    }
+  }
+
+  pub fn create_ad_descriptor_pool(&self, max_sets: u32, pool_sizes: &[vk::DescriptorPoolSize])
+    -> Result<AdDescriptorPool, String> {
+    unsafe {
+      let descriptor_pool = self.vk_device.create_descriptor_pool(
+        &vk::DescriptorPoolCreateInfo::default()
+          .max_sets(max_sets)
+          .pool_sizes(pool_sizes),
+        None
+      )
+        .map_err(|e| format!("at creating vk descriptor pool: {e}"))?;
+      Ok(AdDescriptorPool { vk_device: Arc::clone(&self.vk_device), inner: descriptor_pool })
+    }
+  }
+
+  pub fn create_ad_pipeline_layout(&self, set_layouts: &[&AdDescriptorSetLayout])
+    -> Result<AdPipelineLayout, String> {
+      unsafe {
+        let pipeline_layout = self.vk_device.create_pipeline_layout(
+          &vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&set_layouts.iter().map(|x| x.inner).collect::<Vec<_>>()),
+          None
+        )
+        .map_err(|e| format!("at creating vk pipeline layout: {e}"))?;
+        Ok(AdPipelineLayout { vk_device: Arc::clone(&self.vk_device), inner: pipeline_layout })
+      }
+  }
+
+  pub fn create_ad_g_pipeline(&self, create_info: vk::GraphicsPipelineCreateInfo)
+    -> Result<AdPipeline, String> {
+    unsafe {
+      let mut pipeline = self.vk_device.create_graphics_pipelines(
+        vk::PipelineCache::null(),
+        &[create_info],
+        None
+      )
+        .inspect_err(|e| eprintln!("err: {e:?}"))
+        .map_err(|(_, e)| format!("at getting allocator lock: {e}"))?;
+      print!("lmao");
+      let pipeline = pipeline.swap_remove(0);
+      Ok(AdPipeline {
+        vk_device: Arc::clone(&self.vk_device),
+        inner: pipeline,
+      })
+    }
   }
 }
 

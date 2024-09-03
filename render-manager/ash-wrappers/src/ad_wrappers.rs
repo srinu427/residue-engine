@@ -219,12 +219,12 @@ impl Drop for AdSwapchain {
   }
 }
 
-pub struct ADRenderPass {
+pub struct AdRenderPass {
   pub(crate) vk_device: Arc<ash::Device>,
   pub inner: vk::RenderPass,
 }
 
-impl Drop for ADRenderPass {
+impl Drop for AdRenderPass {
   fn drop(&mut self) {
     unsafe {
       self.vk_device.destroy_render_pass(self.inner, None);
@@ -439,6 +439,17 @@ impl AdCommandBuffer {
       );
     }
   }
+
+  pub fn copy_buffer_to_buffer(
+    &self,
+    src_buffer: vk::Buffer,
+    dst_buffer: vk::Buffer,
+    regions: &[vk::BufferCopy]
+  ) {
+    unsafe {
+      self.vk_device.cmd_copy_buffer(self.inner, src_buffer, dst_buffer, regions);
+    }
+  }
 }
 
 impl Drop for AdCommandBuffer {
@@ -496,6 +507,125 @@ impl AdQueue {
         .vk_device
         .queue_wait_idle(self.inner)
         .map_err(|e| format!("error waiting for queue idle: {e}"))
+    }
+  }
+}
+
+pub struct AdDescriptorSetLayout {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub inner: vk::DescriptorSetLayout,
+}
+
+impl Drop for AdDescriptorSetLayout {
+  fn drop(&mut self) {
+    unsafe {
+      self.vk_device.destroy_descriptor_set_layout(self.inner, None);
+    }
+  }
+}
+
+pub struct AdDescriptorPool {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub inner: vk::DescriptorPool,
+}
+
+impl AdDescriptorPool {
+  pub fn allocate_descriptor_sets(
+    &self,
+    set_layouts: &[&AdDescriptorSetLayout]
+  ) -> Result<Vec<AdDescriptorSet>, String> {
+    unsafe {
+      self.vk_device.allocate_descriptor_sets(
+        &vk::DescriptorSetAllocateInfo::default()
+          .descriptor_pool(self.inner)
+          .set_layouts(&set_layouts.iter().map(|x| x.inner).collect::<Vec<_>>())
+      )
+        .map_err(|e| format!("at allocating vk descriptor sets: {e}"))
+        .map(|dsets| {
+          dsets.iter().map(|dset| {
+            AdDescriptorSet {
+              vk_device: Arc::clone(&self.vk_device),
+              pool: self.inner,
+              inner: *dset,
+            }
+          }).collect()
+        })
+    }
+  }
+}
+
+impl Drop for AdDescriptorPool {
+  fn drop(&mut self) {
+    unsafe {
+      self.vk_device.destroy_descriptor_pool(self.inner, None);
+    }
+  }
+}
+
+pub struct AdDescriptorSet {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub(crate) pool: vk::DescriptorPool,
+  pub inner: vk::DescriptorSet,
+}
+
+impl Drop for AdDescriptorSet {
+  fn drop(&mut self) {
+    unsafe {
+      let _ = self.vk_device.free_descriptor_sets(self.pool, &[self.inner])
+        .inspect_err(|e| eprintln!("error freeing descriptor set: {e}"));
+    }
+  }
+}
+
+pub struct AdShaderModule {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub(crate) dropped: bool,
+  pub inner: vk::ShaderModule,
+}
+
+impl AdShaderModule {
+  pub fn manual_destroy(&mut self) {
+    unsafe {
+      if !self.dropped {
+        self.vk_device.destroy_shader_module(self.inner, None);
+        self.dropped = true;
+      }
+    }
+  }
+}
+
+impl Drop for AdShaderModule {
+  fn drop(&mut self) {
+    unsafe {
+      if !self.dropped {
+        self.vk_device.destroy_shader_module(self.inner, None);
+      }
+    }
+  } 
+}
+
+pub struct AdPipelineLayout {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub inner: vk::PipelineLayout,
+}
+
+impl Drop for AdPipelineLayout {
+  fn drop(&mut self) {
+    unsafe {
+      self.vk_device.destroy_pipeline_layout(self.inner, None);
+    }
+  }
+}
+
+pub struct AdPipeline {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub inner: vk::Pipeline,
+}
+
+impl Drop for AdPipeline {
+  fn drop(&mut self) {
+    unsafe {
+      self.vk_device.destroy_pipeline(self.inner, None);
     }
   }
 }

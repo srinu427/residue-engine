@@ -1,8 +1,8 @@
-use crate::ad_wrappers::ADRenderPass;
+use crate::ad_wrappers::AdRenderPass;
 use ash::vk;
 use std::sync::Arc;
 
-pub struct ADRenderPassBuilder<'a> {
+pub struct AdRenderPassBuilder<'a> {
   vk_device: Arc<ash::Device>,
   flags: vk::RenderPassCreateFlags,
   attachments: Vec<vk::AttachmentDescription>,
@@ -10,7 +10,7 @@ pub struct ADRenderPassBuilder<'a> {
   sub_pass_dependencies: Vec<vk::SubpassDependency>,
 }
 
-impl<'a> ADRenderPassBuilder<'a> {
+impl<'a> AdRenderPassBuilder<'a> {
   pub fn new(vk_device: Arc<ash::Device>, flags: vk::RenderPassCreateFlags) -> Self {
     Self {
       vk_device,
@@ -36,7 +36,7 @@ impl<'a> ADRenderPassBuilder<'a> {
     self
   }
 
-  pub fn build(self) -> Result<ADRenderPass, String> {
+  pub fn build(self) -> Result<AdRenderPass, String> {
     let render_pass_create_info = vk::RenderPassCreateInfo::default()
       .flags(self.flags)
       .attachments(&self.attachments)
@@ -48,6 +48,6 @@ impl<'a> ADRenderPassBuilder<'a> {
         .create_render_pass(&render_pass_create_info, None)
         .map_err(|e| format!("at creating render pass: {e}"))?
     };
-    Ok(ADRenderPass { vk_device: self.vk_device, inner: vk_render_pass })
+    Ok(AdRenderPass { vk_device: self.vk_device, inner: vk_render_pass })
   }
 }
