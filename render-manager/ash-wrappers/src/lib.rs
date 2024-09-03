@@ -573,6 +573,7 @@ impl VkContext {
       }
   }
 
+  #[inline(always)]
   pub fn create_ad_g_pipeline(&self, create_info: vk::GraphicsPipelineCreateInfo)
     -> Result<AdPipeline, String> {
     unsafe {

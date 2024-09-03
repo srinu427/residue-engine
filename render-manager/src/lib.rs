@@ -222,7 +222,10 @@ impl RenderManager {
     let empty_vert_input_info = vk::PipelineVertexInputStateCreateInfo::default();
     let triangle_input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
       .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
-    let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default();
+    let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
+      .cull_mode(vk::CullModeFlags::BACK)
+      .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+      .polygon_mode(vk::PolygonMode::FILL);
 
     let triangle_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
       .render_pass(triangle_render_pass.inner)
