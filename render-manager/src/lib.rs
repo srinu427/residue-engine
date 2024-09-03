@@ -151,7 +151,7 @@ impl RenderManager {
 
     let triangle_dset_pool = vk_context.create_ad_descriptor_pool(
       1,
-      &[vk::DescriptorPoolSize::default().descriptor_count(1)]
+      &[vk::DescriptorPoolSize::default().descriptor_count(1).ty(vk::DescriptorType::STORAGE_BUFFER)]
     )?;
 
     let triangle_dset = triangle_dset_pool.allocate_descriptor_sets(&[&triangle_dset_layout])?.remove(0);
