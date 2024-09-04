@@ -290,7 +290,7 @@ impl VkContext {
     stage_buffer
       .allocation
       .as_mut()
-      .map(|alloc| {alloc.mapped_slice_mut().map(|x| {x.copy_from_slice(data)})})
+      .map(|alloc| {alloc.mapped_slice_mut().map(|x| {x[..data.len()].copy_from_slice(data)})})
       .ok_or("Error allocating stage buffer")?;
     let buffer = self.create_ad_buffer(
       Arc::clone(&allocator),
