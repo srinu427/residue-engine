@@ -1,7 +1,7 @@
 pub mod data_wrappers;
 pub mod sync_wrappers;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use ash::{khr, vk};
 
@@ -222,6 +222,69 @@ impl Drop for AdSwapchain {
 pub struct AdRenderPass {
   pub(crate) vk_device: Arc<ash::Device>,
   pub inner: vk::RenderPass,
+  pub(crate) subpass_count: u32,
+}
+
+impl AdRenderPass {
+  pub fn create_ad_g_pipeline(
+    &self,
+    subpass_id: u32,
+    set_layouts: &[&AdDescriptorSetLayout],
+    shaders: HashMap<vk::ShaderStageFlags, &AdShaderModule>,
+    rasterizer_config: vk::PipelineRasterizationStateCreateInfo,
+    blend_info: &vk::PipelineColorBlendStateCreateInfo,
+  ) -> Result<AdPipeline, String> {
+    let empty_vert_input_info = vk::PipelineVertexInputStateCreateInfo::default();
+    let triangle_input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
+      .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let pipeline_dyn_state = vk::PipelineDynamicStateCreateInfo::default()
+      .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
+    let pipeline_vp_state = vk::PipelineViewportStateCreateInfo::default()
+      .scissor_count(1)
+      .viewport_count(1);
+    let msaa_state = vk::PipelineMultisampleStateCreateInfo::default()
+      .sample_shading_enable(false)
+      .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let shader_stages = shaders.iter().map(|(stage, shader_mod)| {
+      vk::PipelineShaderStageCreateInfo::default()
+        .module(shader_mod.inner)
+        .stage(*stage)
+        .name(c"main")
+    }).collect::<Vec<_>>();
+
+    let pipeline_layout = unsafe {
+      self.vk_device.create_pipeline_layout(
+        &vk::PipelineLayoutCreateInfo::default()
+          .set_layouts(&set_layouts.iter().map(|x| x.inner).collect::<Vec<_>>()),
+        None
+      )
+      .map_err(|e| format!("at creating vk pipeline layout: {e}"))?
+    };
+
+    let pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
+      .render_pass(self.inner)
+      .subpass(subpass_id)
+      .layout(pipeline_layout)
+      .stages(&shader_stages)
+      .vertex_input_state(&empty_vert_input_info)
+      .input_assembly_state(&triangle_input_assembly_info)
+      .dynamic_state(&pipeline_dyn_state)
+      .viewport_state(&pipeline_vp_state)
+      .multisample_state(&msaa_state)
+      .color_blend_state(&blend_info)
+      .rasterization_state(&rasterizer_config);
+
+    let pipeline = unsafe {
+      self.vk_device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_create_info], None)
+        .map_err(|(_, e)| format!("at creating vk pipeline: {e}"))?
+        .swap_remove(0)
+    };
+    Ok(AdPipeline {
+      vk_device: Arc::clone(&self.vk_device),
+      layout: pipeline_layout,
+      inner: pipeline,
+    })
+  }
 }
 
 impl Drop for AdRenderPass {
@@ -526,6 +589,7 @@ impl Drop for AdDescriptorSetLayout {
 
 pub struct AdDescriptorPool {
   pub(crate) vk_device: Arc<ash::Device>,
+  pub(crate) free_sets_supported: bool,
   pub inner: vk::DescriptorPool,
 }
 
@@ -546,6 +610,7 @@ impl AdDescriptorPool {
             AdDescriptorSet {
               vk_device: Arc::clone(&self.vk_device),
               pool: self.inner,
+              free_possible: self.free_sets_supported,
               inner: *dset,
             }
           }).collect()
@@ -565,14 +630,17 @@ impl Drop for AdDescriptorPool {
 pub struct AdDescriptorSet {
   pub(crate) vk_device: Arc<ash::Device>,
   pub(crate) pool: vk::DescriptorPool,
+  pub(crate) free_possible: bool,
   pub inner: vk::DescriptorSet,
 }
 
 impl Drop for AdDescriptorSet {
   fn drop(&mut self) {
     unsafe {
-      let _ = self.vk_device.free_descriptor_sets(self.pool, &[self.inner])
+      if self.free_possible {
+        let _ = self.vk_device.free_descriptor_sets(self.pool, &[self.inner])
         .inspect_err(|e| eprintln!("error freeing descriptor set: {e}"));
+      }
     }
   }
 }
@@ -604,21 +672,9 @@ impl Drop for AdShaderModule {
   } 
 }
 
-pub struct AdPipelineLayout {
-  pub(crate) vk_device: Arc<ash::Device>,
-  pub inner: vk::PipelineLayout,
-}
-
-impl Drop for AdPipelineLayout {
-  fn drop(&mut self) {
-    unsafe {
-      self.vk_device.destroy_pipeline_layout(self.inner, None);
-    }
-  }
-}
-
 pub struct AdPipeline {
   pub(crate) vk_device: Arc<ash::Device>,
+  pub layout: vk::PipelineLayout,
   pub inner: vk::Pipeline,
 }
 
@@ -626,6 +682,7 @@ impl Drop for AdPipeline {
   fn drop(&mut self) {
     unsafe {
       self.vk_device.destroy_pipeline(self.inner, None);
+      self.vk_device.destroy_pipeline_layout(self.layout, None);
     }
   }
 }

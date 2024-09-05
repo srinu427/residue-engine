@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use crate::ad_wrappers::AdQueue;
 use ad_wrappers::data_wrappers::{AdBuffer, AdImage2D};
 use ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
-use ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSetLayout, AdPipeline, AdPipelineLayout, AdShaderModule, AdSurface, AdSwapchain};
+use ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSetLayout, AdShaderModule, AdSurface, AdSwapchain};
 use builders::AdRenderPassBuilder;
 
 pub struct VkInstances {
@@ -546,49 +546,25 @@ impl VkContext {
     }
   }
 
-  pub fn create_ad_descriptor_pool(&self, max_sets: u32, pool_sizes: &[vk::DescriptorPoolSize])
-    -> Result<AdDescriptorPool, String> {
+  pub fn create_ad_descriptor_pool(
+    &self,
+    flags: vk::DescriptorPoolCreateFlags,
+    max_sets: u32,
+    pool_sizes: &[vk::DescriptorPoolSize]
+  ) -> Result<AdDescriptorPool, String> {
     unsafe {
       let descriptor_pool = self.vk_device.create_descriptor_pool(
         &vk::DescriptorPoolCreateInfo::default()
+        .flags(flags)
           .max_sets(max_sets)
           .pool_sizes(pool_sizes),
         None
       )
         .map_err(|e| format!("at creating vk descriptor pool: {e}"))?;
-      Ok(AdDescriptorPool { vk_device: Arc::clone(&self.vk_device), inner: descriptor_pool })
-    }
-  }
-
-  pub fn create_ad_pipeline_layout(&self, set_layouts: &[&AdDescriptorSetLayout])
-    -> Result<AdPipelineLayout, String> {
-      unsafe {
-        let pipeline_layout = self.vk_device.create_pipeline_layout(
-          &vk::PipelineLayoutCreateInfo::default()
-            .set_layouts(&set_layouts.iter().map(|x| x.inner).collect::<Vec<_>>()),
-          None
-        )
-        .map_err(|e| format!("at creating vk pipeline layout: {e}"))?;
-        Ok(AdPipelineLayout { vk_device: Arc::clone(&self.vk_device), inner: pipeline_layout })
-      }
-  }
-
-  #[inline(always)]
-  pub fn create_ad_g_pipeline(&self, create_info: vk::GraphicsPipelineCreateInfo)
-    -> Result<AdPipeline, String> {
-    unsafe {
-      let mut pipeline = self.vk_device.create_graphics_pipelines(
-        vk::PipelineCache::null(),
-        &[create_info],
-        None
-      )
-        .inspect_err(|e| eprintln!("err: {e:?}"))
-        .map_err(|(_, e)| format!("at getting allocator lock: {e}"))?;
-      print!("lmao");
-      let pipeline = pipeline.swap_remove(0);
-      Ok(AdPipeline {
+      Ok(AdDescriptorPool {
         vk_device: Arc::clone(&self.vk_device),
-        inner: pipeline,
+        free_sets_supported: flags.contains(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
+        inner: descriptor_pool
       })
     }
   }

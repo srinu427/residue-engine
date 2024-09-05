@@ -1,17 +1,16 @@
-use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use ash_wrappers::ad_wrappers::data_wrappers::{AdBuffer, AdImage2D, Allocator};
 use ash_wrappers::ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
 pub use ash_wrappers::ad_wrappers::AdSurface;
-use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdPipeline, AdPipelineLayout, AdRenderPass, AdSwapchain};
+use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdPipeline, AdRenderPass, AdSwapchain};
 pub use ash_wrappers::VkInstances;
 use ash_wrappers::{vk, GPUQueueType, MemoryLocation, VkContext};
 
 pub struct RenderManager {
   triangle_pipeline: AdPipeline,
-  triangle_pipeline_layout: AdPipelineLayout,
   triangle_dset: AdDescriptorSet,
   triangle_dset_pool: AdDescriptorPool,
   triangle_dset_layout: AdDescriptorSetLayout,
@@ -150,6 +149,7 @@ impl RenderManager {
     ])?;
 
     let triangle_dset_pool = vk_context.create_ad_descriptor_pool(
+      vk::DescriptorPoolCreateFlags::default(),
       1,
       &[vk::DescriptorPoolSize::default().descriptor_count(1).ty(vk::DescriptorType::STORAGE_BUFFER)]
     )?;
@@ -197,49 +197,25 @@ impl RenderManager {
     let mut frag_shader = vk_context
       .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.frag.spv"))?;
 
-    let shader_stages = [
-      vk::PipelineShaderStageCreateInfo::default()
-        .module(vert_shader.inner)
-        .stage(vk::ShaderStageFlags::VERTEX)
-        .name(c"main"),
-      vk::PipelineShaderStageCreateInfo::default()
-        .module(frag_shader.inner)
-        .stage(vk::ShaderStageFlags::FRAGMENT)
-        .name(c"main"),
-    ];
-
-    let triangle_pipeline_dyn_state = vk::PipelineDynamicStateCreateInfo::default()
-      .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-    let triangle_pipeline_vp_state = vk::PipelineViewportStateCreateInfo::default()
-      .scissor_count(1)
-      .viewport_count(1);
-    let triangle_msaa = vk::PipelineMultisampleStateCreateInfo::default()
-      .sample_shading_enable(false)
-      .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-
-    let triangle_pipeline_layout = vk_context.create_ad_pipeline_layout(&[&triangle_dset_layout])?;
-
-    let empty_vert_input_info = vk::PipelineVertexInputStateCreateInfo::default();
-    let triangle_input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
-      .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
     let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
       .cull_mode(vk::CullModeFlags::BACK)
       .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-      .polygon_mode(vk::PolygonMode::FILL);
-
-    let triangle_pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-      .render_pass(triangle_render_pass.inner)
-      .subpass(0)
-      .layout(triangle_pipeline_layout.inner)
-      .stages(&shader_stages)
-      .vertex_input_state(&empty_vert_input_info)
-      .input_assembly_state(&triangle_input_assembly_info)
-      .dynamic_state(&triangle_pipeline_dyn_state)
-      .viewport_state(&triangle_pipeline_vp_state)
-      .multisample_state(&triangle_msaa)
-      .rasterization_state(&triangle_rasterizer_info);
+      .polygon_mode(vk::PolygonMode::FILL)
+      .line_width(1.0);
     
-    let triangle_pipeline = vk_context.create_ad_g_pipeline(triangle_pipeline_info)?;
+    let triangle_pipeline = triangle_render_pass.create_ad_g_pipeline(
+      0,
+      &[&triangle_dset_layout],
+      HashMap::from([
+        (vk::ShaderStageFlags::VERTEX, &vert_shader),
+        (vk::ShaderStageFlags::FRAGMENT, &frag_shader)
+      ]),
+      triangle_rasterizer_info,
+      &vk::PipelineColorBlendStateCreateInfo::default()
+        .attachments(&[vk::PipelineColorBlendAttachmentState::default()
+          .color_write_mask(vk::ColorComponentFlags::RGBA)
+          .blend_enable(false)])
+    )?;
 
     vert_shader.manual_destroy();
     frag_shader.manual_destroy();
@@ -261,7 +237,6 @@ impl RenderManager {
       triangle_dset_layout,
       triangle_dset_pool,
       triangle_dset,
-      triangle_pipeline_layout,
       triangle_pipeline,
     })
   }
