@@ -79,14 +79,13 @@ impl RenderManager {
     let render_cmd_buffers =
       render_cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 3)?;
 
-    let mut render_semaphores = vec![];
-    for _ in 0..3 {
-      render_semaphores.push(vk_context.create_ad_semaphore(vk::SemaphoreCreateFlags::default())?)
-    }
-    let mut render_fences = vec![];
-    for _ in 0..3 {
-      render_fences.push(vk_context.create_ad_fence(vk::FenceCreateFlags::SIGNALED)?)
-    }
+    let render_semaphores = (0..3)
+      .map(|_| vk_context.create_ad_semaphore(vk::SemaphoreCreateFlags::default()))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    let render_fences = (0..3)
+      .map(|_| vk_context.create_ad_fence(vk::FenceCreateFlags::SIGNALED))
+      .collect::<Result<Vec<_>, _>>()?;
 
     let transfer_cmd_pool = vk_context
       .queues[&GPUQueueType::Transfer]
@@ -106,19 +105,20 @@ impl RenderManager {
       1,
     )?;
 
-    let mut triangle_out_images = vec![];
-    for i in 0..3 {
-      triangle_out_images.push(vk_context.create_ad_image_2d(
-        Arc::clone(&gen_allocator),
-        MemoryLocation::GpuOnly,
-        &format!("triangle_out_image_{i}"),
-        vk::Format::R8G8B8A8_UNORM,
-        swapchain_resolution,
-        vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-        vk::SampleCountFlags::TYPE_1,
-        1
-      )?);
-    }
+    let triangle_out_images = (0..3)
+      .map(|i| {
+        vk_context.create_ad_image_2d(
+          Arc::clone(&gen_allocator),
+          MemoryLocation::GpuOnly,
+          &format!("triangle_out_image_{i}"),
+          vk::Format::R8G8B8A8_UNORM,
+          swapchain_resolution,
+          vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+          vk::SampleCountFlags::TYPE_1,
+          1
+        )
+      })
+      .collect::<Result<Vec<_>, _>>()?;
 
     let tri_verts = [
       [0.0f32, 0.0f32, 1.0f32, 1.0f32],
@@ -127,8 +127,8 @@ impl RenderManager {
     ];
 
     let tmp_cmd_buffer = transfer_cmd_pool
-    .allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?
-    .remove(0);
+      .allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?
+      .remove(0);
 
     let triangle_vb = vk_context.create_ad_buffer_from_data(
       Arc::clone(&gen_allocator),
