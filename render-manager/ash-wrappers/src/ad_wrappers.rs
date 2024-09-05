@@ -121,13 +121,7 @@ impl AdSwapchain {
         semaphore.map(|x| x.inner).unwrap_or(vk::Semaphore::null()),
         fence.map(|x| x.inner).unwrap_or(vk::Fence::null()),
       ) {
-        Ok((idx, refresh_needed)) => {
-          if refresh_needed {
-            Ok((idx, true))
-          } else {
-            Ok((idx, false))
-          }
-        }
+        Ok((idx, refresh_needed)) => { Ok((idx, refresh_needed)) }
         Err(e) => {
           if e == vk::Result::ERROR_OUT_OF_DATE_KHR {
             return Ok((0, true));
