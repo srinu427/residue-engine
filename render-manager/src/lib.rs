@@ -340,7 +340,7 @@ impl RenderManager {
     self.render_cmd_buffers[image_idx as usize].begin_render_pass(
       vk::RenderPassBeginInfo::default()
         .render_pass(self.triangle_render_pass.inner)
-        .render_area(vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: 1600, height: 1200 } })
+        .render_area(vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: 800, height: 600 } })
         .framebuffer(self.triangle_frame_buffers[image_idx as usize].inner)
         .clear_values(&[
           vk::ClearValue { color: vk::ClearColorValue { float32: [1.0, 0.0, 0.0, 0.0] } },
