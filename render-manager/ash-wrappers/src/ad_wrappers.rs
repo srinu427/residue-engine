@@ -4,6 +4,7 @@ pub mod sync_wrappers;
 use std::{collections::HashMap, sync::Arc};
 
 use ash::{khr, vk};
+use data_wrappers::AdImageView;
 
 pub struct AdSurface {
   pub(crate) surface_instance: Arc<khr::surface::Instance>,
@@ -74,6 +75,10 @@ pub struct AdSwapchain {
 }
 
 impl AdSwapchain {
+  pub fn get_current_resolution(&self) -> vk::Extent2D {
+    self.resolution
+  }
+
   pub fn refresh_resolution(&mut self) -> Result<(), String> {
     let surface_caps = self.surface.get_gpu_capabilities(self.gpu)?;
 
@@ -279,12 +284,41 @@ impl AdRenderPass {
       inner: pipeline,
     })
   }
+
+  pub fn create_frame_buffer(&self, attachment_views: &[&AdImageView], resolution: vk::Extent2D, layers: u32)
+    -> Result<AdFrameBuffer, String> {
+    let attachments = attachment_views.iter().map(|x| x.inner).collect::<Vec<_>>();
+    let frame_buffer_create_info = vk::FramebufferCreateInfo::default()
+      .render_pass(self.inner)
+      .attachments(&attachments)
+      .width(resolution.width)
+      .height(resolution.height)
+      .layers(layers);
+    let frame_buffer = unsafe {
+      self.vk_device.create_framebuffer(&frame_buffer_create_info, None)
+        .map_err(|e| format!("at creating vk frame buffer: {e}"))?
+    };
+    Ok(AdFrameBuffer { vk_device: Arc::clone(&self.vk_device), inner: frame_buffer })
+  }
 }
 
 impl Drop for AdRenderPass {
   fn drop(&mut self) {
     unsafe {
       self.vk_device.destroy_render_pass(self.inner, None);
+    }
+  }
+}
+
+pub struct AdFrameBuffer {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub inner: vk::Framebuffer
+}
+
+impl Drop for AdFrameBuffer {
+  fn drop(&mut self) {
+    unsafe {
+      self.vk_device.destroy_framebuffer(self.inner, None);
     }
   }
 }
@@ -432,6 +466,31 @@ impl AdCommandBuffer {
   ) {
     unsafe {
       self.vk_device.cmd_bind_index_buffer(self.inner, buffer, offset, index_type);
+    }
+  }
+
+  pub fn bind_descriptor_sets(&self, pipeline_bind_point: vk::PipelineBindPoint, layout: vk::PipelineLayout, descriptor_sets: &[&AdDescriptorSet]) {
+    let vk_descriptor_sets = descriptor_sets.iter().map(|x| x.inner).collect::<Vec<_>>();
+    unsafe {
+      self.vk_device.cmd_bind_descriptor_sets(self.inner, pipeline_bind_point, layout, 0, &vk_descriptor_sets, &[])
+    }
+  }
+
+  pub fn set_view_port(&self, viewports: &[vk::Viewport]) {
+    unsafe {
+      self.vk_device.cmd_set_viewport(self.inner, 0, viewports);
+    }
+  }
+
+  pub fn set_scissor(&self, scissors: &[vk::Rect2D]) {
+    unsafe {
+      self.vk_device.cmd_set_scissor(self.inner, 0, scissors);
+    }
+  }
+
+  pub fn draw(&self) {
+    unsafe {
+      self.vk_device.cmd_draw(self.inner, 3, 1, 0, 0);
     }
   }
 
@@ -626,6 +685,49 @@ pub struct AdDescriptorSet {
   pub(crate) pool: vk::DescriptorPool,
   pub(crate) free_possible: bool,
   pub inner: vk::DescriptorSet,
+}
+
+impl AdDescriptorSet {
+  pub fn write_and_update(
+    &self,
+    binding: u32,
+    start_idx: u32,
+    descriptor_type: vk::DescriptorType,
+    image_infos: &[vk::DescriptorImageInfo],
+    buffer_infos: &[vk::DescriptorBufferInfo],
+  ) {
+    if (descriptor_type == vk::DescriptorType::STORAGE_BUFFER ||
+      descriptor_type == vk::DescriptorType::STORAGE_BUFFER_DYNAMIC ||
+      descriptor_type == vk::DescriptorType::UNIFORM_BUFFER ||
+      descriptor_type == vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC) &&
+      buffer_infos.len() > 0 {
+      let write_info = vk::WriteDescriptorSet::default()
+        .dst_set(self.inner)
+        .dst_binding(binding)
+        .dst_array_element(start_idx)
+        .descriptor_count(buffer_infos.len() as u32)
+        .descriptor_type(descriptor_type)
+        .buffer_info(&buffer_infos);
+      unsafe {
+        self.vk_device.update_descriptor_sets(&[write_info], &[]);
+      }
+    }
+    if (descriptor_type == vk::DescriptorType::SAMPLED_IMAGE ||
+      descriptor_type == vk::DescriptorType::STORAGE_IMAGE ||
+      descriptor_type == vk::DescriptorType::COMBINED_IMAGE_SAMPLER) &&
+      image_infos.len() > 0 {
+      let write_info = vk::WriteDescriptorSet::default()
+        .dst_set(self.inner)
+        .dst_binding(binding)
+        .dst_array_element(start_idx)
+        .descriptor_count(image_infos.len() as u32)
+        .descriptor_type(descriptor_type)
+        .image_info(&image_infos);
+      unsafe {
+        self.vk_device.update_descriptor_sets(&[write_info], &[]);
+      }
+    }
+  }
 }
 
 impl Drop for AdDescriptorSet {

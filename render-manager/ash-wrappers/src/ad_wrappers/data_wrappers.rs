@@ -43,6 +43,35 @@ impl AdImage2D {
       vk::Offset3D::default().x(self.resolution.width as i32).y(self.resolution.height as i32).z(1),
     ]
   }
+
+  pub fn create_view(&self, aspect_mask: vk::ImageAspectFlags) -> Result<AdImageView, String> {
+    let view_create_info = vk::ImageViewCreateInfo::default()
+      .image(self.inner)
+      .format(self.format)
+      .view_type(vk::ImageViewType::TYPE_2D)
+      .subresource_range(
+        vk::ImageSubresourceRange::default()
+          .aspect_mask(aspect_mask)
+          .layer_count(1)
+          .base_array_layer(0)
+          .level_count(1)
+          .base_mip_level(0),
+      )
+      .components(vk::ComponentMapping {
+        r: vk::ComponentSwizzle::R,
+        g: vk::ComponentSwizzle::G,
+        b: vk::ComponentSwizzle::B,
+        a: vk::ComponentSwizzle::A,
+      });
+    let image_view = unsafe {
+      self.vk_device.create_image_view(&view_create_info, None)
+        .map_err(|e| format!("at creating vk image view: {e}"))?
+    };
+    Ok(AdImageView {
+      vk_device: Arc::clone(&self.vk_device),
+      inner: image_view,
+    })
+  }
 }
 
 impl Drop for AdImage2D {
@@ -56,5 +85,18 @@ impl Drop for AdImage2D {
         .map(|mut altr| self.allocation.take().map(|altn| altr.free(altn)))
         .inspect_err(|e| eprintln!("at getting allocator lock while image destroy: {e}"))
     });
+  }
+}
+
+pub struct AdImageView {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub inner: vk::ImageView,
+}
+
+impl Drop for AdImageView {
+  fn drop(&mut self) {
+    unsafe {
+      self.vk_device.destroy_image_view(self.inner, None);
+    }
   }
 }

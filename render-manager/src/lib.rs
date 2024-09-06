@@ -2,19 +2,21 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ash_wrappers::ad_wrappers::data_wrappers::{AdBuffer, AdImage2D, Allocator};
+use ash_wrappers::ad_wrappers::data_wrappers::{AdBuffer, AdImage2D, AdImageView, Allocator};
 use ash_wrappers::ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
 pub use ash_wrappers::ad_wrappers::AdSurface;
-use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdPipeline, AdRenderPass, AdSwapchain};
+use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdPipeline, AdRenderPass, AdSwapchain};
 pub use ash_wrappers::VkInstances;
 use ash_wrappers::{vk, GPUQueueType, MemoryLocation, VkContext};
 
 pub struct RenderManager {
+  triangle_frame_buffers: Vec<AdFrameBuffer>,
   triangle_pipeline: AdPipeline,
   triangle_dset: AdDescriptorSet,
   triangle_dset_pool: AdDescriptorPool,
   triangle_dset_layout: AdDescriptorSetLayout,
   triangle_render_pass: AdRenderPass,
+  triangle_out_image_views: Vec<AdImageView>,
   triangle_out_images: Vec<AdImage2D>,
   triangle_vb: AdBuffer,
   bg_image: AdImage2D,
@@ -112,7 +114,7 @@ impl RenderManager {
           MemoryLocation::GpuOnly,
           &format!("triangle_out_image_{i}"),
           vk::Format::R8G8B8A8_UNORM,
-          swapchain_resolution,
+          vk::Extent2D { width: 800, height: 600 },
           vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
           vk::SampleCountFlags::TYPE_1,
           1
@@ -120,10 +122,48 @@ impl RenderManager {
       })
       .collect::<Result<Vec<_>, _>>()?;
 
+    render_cmd_buffers[0].begin(vk::CommandBufferBeginInfo::default())?;
+    render_cmd_buffers[0].pipeline_barrier(
+      vk::PipelineStageFlags::TRANSFER,
+      vk::PipelineStageFlags::TRANSFER,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &triangle_out_images
+        .iter()
+        .map(|x| {
+          vk::ImageMemoryBarrier::default()
+            .image(x.inner)
+            .subresource_range(
+              vk::ImageSubresourceRange::default()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .layer_count(1)
+                .base_array_layer(0)
+                .level_count(1)
+                .base_mip_level(0),
+            )
+            .src_queue_family_index(render_cmd_buffers[0].qf_idx)
+            .dst_queue_family_index(render_cmd_buffers[0].qf_idx)
+            .src_access_mask(vk::AccessFlags::NONE)
+            .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+            .old_layout(vk::ImageLayout::UNDEFINED)
+            .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        })
+        .collect::<Vec<_>>(),
+    );
+    render_cmd_buffers[0].end()?;
+    render_cmd_buffers[0].submit(&[], &[], Some(&image_acquire_fence))?;
+    image_acquire_fence.wait(999999999)?;
+    image_acquire_fence.reset()?;
+
+    let triangle_out_image_views = (0..3)
+      .map(|i| triangle_out_images[i].create_view(vk::ImageAspectFlags::COLOR))
+      .collect::<Result<Vec<_>, _>>()?;
+
     let tri_verts = [
-      [0.0f32, 0.0f32, 1.0f32, 1.0f32],
-      [1.0f32, 0.0f32, 1.0f32, 1.0f32],
-      [1.0f32, 1.0f32, 1.0f32, 1.0f32],
+      [0.0f32, -0.5f32, 0.0f32, 1.0f32],
+      [0.5f32, 0.5f32, 0.0f32, 1.0f32],
+      [-0.5f32, 0.5f32, 0.0f32, 1.0f32],
     ];
 
     let tmp_cmd_buffer = transfer_cmd_pool
@@ -136,7 +176,7 @@ impl RenderManager {
       "triangle",
       vk::BufferCreateFlags::default(),
       vk::BufferUsageFlags::STORAGE_BUFFER,
-      unsafe {std::slice::from_raw_parts(tri_verts.as_ptr() as *const u8, 48)},
+      unsafe { std::slice::from_raw_parts(tri_verts.as_ptr() as *const u8, 48) },
       &tmp_cmd_buffer
     )?;
 
@@ -151,10 +191,17 @@ impl RenderManager {
     let triangle_dset_pool = vk_context.create_ad_descriptor_pool(
       vk::DescriptorPoolCreateFlags::default(),
       1,
-      &[vk::DescriptorPoolSize::default().descriptor_count(1).ty(vk::DescriptorType::STORAGE_BUFFER)]
+      &[vk::DescriptorPoolSize { descriptor_count: 1, ty: vk::DescriptorType::STORAGE_BUFFER }]
     )?;
 
     let triangle_dset = triangle_dset_pool.allocate_descriptor_sets(&[&triangle_dset_layout])?.remove(0);
+    triangle_dset.write_and_update(
+      0,
+      0,
+      vk::DescriptorType::STORAGE_BUFFER,
+      &[],
+      &[vk::DescriptorBufferInfo::default().buffer(triangle_vb.inner).offset(0).range(vk::WHOLE_SIZE)]
+    );
 
     let triangle_render_pass = vk_context
       .create_ad_render_pass_builder(vk::RenderPassCreateFlags::default())
@@ -163,7 +210,8 @@ impl RenderManager {
           .format(vk::Format::R8G8B8A8_UNORM)
           .samples(vk::SampleCountFlags::TYPE_1)
           .initial_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-          .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL),
+          .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+          .load_op(vk::AttachmentLoadOp::CLEAR),
       )
       .add_sub_pass(
         vk::SubpassDescription::default()
@@ -220,6 +268,12 @@ impl RenderManager {
     vert_shader.manual_destroy();
     frag_shader.manual_destroy();
 
+    let triangle_frame_buffers = (0..3)
+      .map(|i| {
+        triangle_render_pass.create_frame_buffer(&[&triangle_out_image_views[i]], swapchain_resolution, 1)
+      })
+      .collect::<Result<Vec<_>, String>>()?;
+
     Ok(Self {
       vk_context,
       swapchain,
@@ -233,11 +287,13 @@ impl RenderManager {
       bg_image,
       triangle_vb,
       triangle_out_images,
+      triangle_out_image_views,
       triangle_render_pass,
       triangle_dset_layout,
       triangle_dset_pool,
       triangle_dset,
       triangle_pipeline,
+      triangle_frame_buffers,
     })
   }
 
@@ -275,9 +331,46 @@ impl RenderManager {
       self.swapchain.set_initialized();
     }
 
+    let current_sc_res = self.swapchain.get_current_resolution();
+
     self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::default()))
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
+
+    self.render_cmd_buffers[image_idx as usize].begin_render_pass(
+      vk::RenderPassBeginInfo::default()
+        .render_pass(self.triangle_render_pass.inner)
+        .render_area(vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: 1600, height: 1200 } })
+        .framebuffer(self.triangle_frame_buffers[image_idx as usize].inner)
+        .clear_values(&[
+          vk::ClearValue { color: vk::ClearColorValue { float32: [1.0, 0.0, 0.0, 0.0] } },
+        ]),
+      vk::SubpassContents::INLINE
+    );
+
+    self.render_cmd_buffers[image_idx as usize].bind_pipeline(
+      vk::PipelineBindPoint::GRAPHICS,
+      self.triangle_pipeline.inner
+    );
+    self.render_cmd_buffers[image_idx as usize].bind_descriptor_sets(
+      vk::PipelineBindPoint::GRAPHICS,
+      self.triangle_pipeline.layout,
+      &[&self.triangle_dset]
+    );
+    self.render_cmd_buffers[image_idx as usize].set_view_port(&[
+      vk::Viewport{
+        x: 0.0,
+        y: 0.0,
+        width: 800.0,
+        height: 600.0,
+        min_depth: 0.0,
+        max_depth: 1.0
+      }]
+    );
+    self.render_cmd_buffers[image_idx as usize].set_scissor(&[vk::Rect2D{ offset: vk::Offset2D{ x: 0, y: 0 }, extent: vk::Extent2D{ width: 800, height: 600 } }]);
+    self.render_cmd_buffers[image_idx as usize].draw();
+
+    self.render_cmd_buffers[image_idx as usize].end_render_pass();
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
       vk::PipelineStageFlags::TRANSFER,
@@ -286,25 +379,25 @@ impl RenderManager {
       &[],
       &[],
       &[vk::ImageMemoryBarrier::default()
-        .image(self.swapchain.images[image_idx as usize])
-        .subresource_range(
-          vk::ImageSubresourceRange::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .layer_count(1)
-            .base_array_layer(0)
-            .level_count(1)
-            .base_mip_level(0),
-        )
-        .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
-        .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
-        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-        .old_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)],
+          .image(self.swapchain.images[image_idx as usize])
+          .subresource_range(
+            vk::ImageSubresourceRange::default()
+              .aspect_mask(vk::ImageAspectFlags::COLOR)
+              .layer_count(1)
+              .base_array_layer(0)
+              .level_count(1)
+              .base_mip_level(0),
+          )
+          .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+          .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+          .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+          .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .old_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+          .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)],
     );
 
     self.render_cmd_buffers[image_idx as usize].blit_image(
-      self.bg_image.inner,
+      self.triangle_out_images[image_idx as usize].inner,
       vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
       self.swapchain.images[image_idx as usize],
       vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -316,7 +409,7 @@ impl RenderManager {
             .base_array_layer(0)
             .layer_count(1),
         )
-        .src_offsets(self.bg_image.full_range_offset_3d())
+        .src_offsets(self.triangle_out_images[image_idx as usize].full_range_offset_3d())
         .dst_subresource(
           vk::ImageSubresourceLayers::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
