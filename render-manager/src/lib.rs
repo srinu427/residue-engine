@@ -1,13 +1,17 @@
+pub use ash_wrappers::VkInstances;
+pub use ash_wrappers::ash_present_wrappers::AdSurface;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use ash_wrappers::ad_wrappers::data_wrappers::{AdBuffer, AdImage2D, AdImageView, Allocator};
-use ash_wrappers::ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
-pub use ash_wrappers::ad_wrappers::AdSurface;
-use ash_wrappers::ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdPipeline, AdRenderPass, AdSwapchain};
-pub use ash_wrappers::VkInstances;
-use ash_wrappers::{vk, GPUQueueType, MemoryLocation, VkContext};
+use ash_wrappers::ash_data_wrappers::{AdBuffer, AdImage2D, AdImageView};
+use ash_wrappers::ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdPipeline, AdRenderPass};
+use ash_wrappers::ash_present_wrappers::AdSwapchain;
+use ash_wrappers::ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType};
+use ash_wrappers::ash_sync_wrappers::{AdFence, AdSemaphore};
+use ash_wrappers::{vk, Allocator, MemoryLocation, VkContext};
+
 
 pub struct RenderManager {
   triangle_frame_buffers: Vec<AdFrameBuffer>,
@@ -61,7 +65,7 @@ impl RenderManager {
     );
 
     let swapchain = vk_context.create_ad_swapchain(
-      Arc::clone(&surface),
+      surface.clone(),
       swapchain_image_count,
       surface_format.color_space,
       surface_format.format,
@@ -96,7 +100,7 @@ impl RenderManager {
     let gen_allocator = Arc::new(Mutex::new(vk_context.create_allocator()?));
 
     let bg_image = vk_context.create_ad_image_2d_from_file(
-      Arc::clone(&gen_allocator),
+      gen_allocator.clone(),
       MemoryLocation::GpuOnly,
       &transfer_cmd_pool,
       "background",
@@ -110,7 +114,7 @@ impl RenderManager {
     let triangle_out_images = (0..3)
       .map(|i| {
         vk_context.create_ad_image_2d(
-          Arc::clone(&gen_allocator),
+          gen_allocator.clone(),
           MemoryLocation::GpuOnly,
           &format!("triangle_out_image_{i}"),
           vk::Format::R8G8B8A8_UNORM,
@@ -133,7 +137,7 @@ impl RenderManager {
         .iter()
         .map(|x| {
           vk::ImageMemoryBarrier::default()
-            .image(x.inner)
+            .image(x.inner())
             .subresource_range(
               vk::ImageSubresourceRange::default()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -171,7 +175,7 @@ impl RenderManager {
       .remove(0);
 
     let triangle_vb = vk_context.create_ad_buffer_from_data(
-      Arc::clone(&gen_allocator),
+      gen_allocator.clone(),
       MemoryLocation::GpuOnly,
       "triangle",
       vk::BufferCreateFlags::default(),
@@ -200,7 +204,7 @@ impl RenderManager {
       0,
       vk::DescriptorType::STORAGE_BUFFER,
       &[],
-      &[vk::DescriptorBufferInfo::default().buffer(triangle_vb.inner).offset(0).range(vk::WHOLE_SIZE)]
+      &[vk::DescriptorBufferInfo::default().buffer(triangle_vb.inner()).offset(0).range(vk::WHOLE_SIZE)]
     );
 
     let triangle_render_pass = vk_context
@@ -298,10 +302,14 @@ impl RenderManager {
   }
 
   pub fn draw(&mut self) -> Result<bool, String> {
+    // Acquiring next image to draw
     let (image_idx, refresh_needed) = self
       .swapchain
       .acquire_next_image(None, Some(&self.image_acquire_fence))
       .map_err(|e| format!("at acquiring next image: {e}"))?;
+    self.image_acquire_fence.wait(999999999)?;
+    self.image_acquire_fence.reset()?;
+
     if refresh_needed {
       let _ = self
         .swapchain
@@ -309,8 +317,6 @@ impl RenderManager {
         .inspect_err(|e| eprintln!("at refreshing swapchain res: {e}"));
       return Ok(true)
     }
-    self.image_acquire_fence.wait(999999999)?;
-    self.image_acquire_fence.reset()?;
 
     self.render_fences[image_idx as usize].wait(999999999)?;
     self.render_fences[image_idx as usize].reset()?;
@@ -331,7 +337,7 @@ impl RenderManager {
       self.swapchain.set_initialized();
     }
 
-    let current_sc_res = self.swapchain.get_current_resolution();
+    let current_sc_res = self.swapchain.resolution();
 
     self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::default()))
@@ -339,7 +345,7 @@ impl RenderManager {
 
     self.render_cmd_buffers[image_idx as usize].begin_render_pass(
       vk::RenderPassBeginInfo::default()
-        .render_pass(self.triangle_render_pass.inner)
+        .render_pass(self.triangle_render_pass.inner())
         .render_area(vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: 800, height: 600 } })
         .framebuffer(self.triangle_frame_buffers[image_idx as usize].inner)
         .clear_values(&[
@@ -379,7 +385,7 @@ impl RenderManager {
       &[],
       &[],
       &[vk::ImageMemoryBarrier::default()
-          .image(self.swapchain.images[image_idx as usize])
+          .image(self.swapchain.get_image(image_idx as usize))
           .subresource_range(
             vk::ImageSubresourceRange::default()
               .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -388,8 +394,8 @@ impl RenderManager {
               .level_count(1)
               .base_mip_level(0),
           )
-          .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
-          .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+          .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].family_idx())
+          .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].family_idx())
           .src_access_mask(vk::AccessFlags::TRANSFER_READ)
           .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
           .old_layout(vk::ImageLayout::PRESENT_SRC_KHR)
@@ -397,9 +403,9 @@ impl RenderManager {
     );
 
     self.render_cmd_buffers[image_idx as usize].blit_image(
-      self.triangle_out_images[image_idx as usize].inner,
+      self.triangle_out_images[image_idx as usize].inner(),
       vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-      self.swapchain.images[image_idx as usize],
+      self.swapchain.get_image(image_idx as usize),
       vk::ImageLayout::TRANSFER_DST_OPTIMAL,
       &[vk::ImageBlit::default()
         .src_subresource(
@@ -428,7 +434,7 @@ impl RenderManager {
       &[],
       &[],
       &[vk::ImageMemoryBarrier::default()
-        .image(self.swapchain.images[image_idx as usize])
+        .image(self.swapchain.get_image(image_idx as usize))
         .subresource_range(
           vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -437,8 +443,8 @@ impl RenderManager {
             .level_count(1)
             .base_mip_level(0),
         )
-        .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
-        .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].qf_idx)
+        .src_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].family_idx())
+        .dst_queue_family_index(self.vk_context.queues[&GPUQueueType::Graphics].family_idx())
         .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)

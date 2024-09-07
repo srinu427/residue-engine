@@ -1,24 +1,35 @@
-pub mod ad_wrappers;
+pub use ash_data_wrappers;
+pub use ash_pipeline_wrappers;
+pub use ash_present_wrappers;
+pub use ash_queue_wrappers;
+pub use ash_sync_wrappers;
+pub use ash_common_imports::gpu_allocator::vulkan::{Allocation, Allocator};
+pub use ash_common_imports::gpu_allocator::MemoryLocation;
+
+use ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSetLayout, AdShaderModule};
+use ash_present_wrappers::{AdSurface, AdSwapchain};
+use ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue, GPUQueueType};
+
 pub mod builders;
 mod init_helpers;
 
-pub use ash::{ext, khr, vk};
-use gpu_allocator::vulkan::{
-  AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc,
+pub use ash_common_imports::ash::{self, ext, khr, vk};
+use ash_common_imports::ash_window;
+use ash_common_imports::gpu_allocator::vulkan::{
+  AllocationCreateDesc, AllocationScheme, AllocatorCreateDesc,
 };
-pub use gpu_allocator::MemoryLocation;
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-pub use raw_window_handle;
-use spirv_cross::{spirv, glsl};
+
+use ash_common_imports::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+pub use ash_common_imports::raw_window_handle;
+use ash_common_imports::spirv_cross::{spirv, glsl};
+use ash_data_wrappers::{AdBuffer, AdImage2D};
+use ash_sync_wrappers::{AdFence, AdSemaphore};
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::ad_wrappers::AdQueue;
-use ad_wrappers::data_wrappers::{AdBuffer, AdImage2D};
-use ad_wrappers::sync_wrappers::{AdFence, AdSemaphore};
-use ad_wrappers::{AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSetLayout, AdShaderModule, AdSurface, AdSwapchain};
 use builders::AdRenderPassBuilder;
 
 pub struct VkInstances {
@@ -58,7 +69,7 @@ impl VkInstances {
         window.window_handle().map_err(|_| "unsupported window".to_string())?.as_raw(),
         None,
       )
-      .map(|x| AdSurface { surface_instance: Arc::clone(&self.surface_instance), inner: x })
+      .map(|x| AdSurface::new(self.surface_instance.clone(), x))
       .map_err(|e| format!("at surface create: {e}"))
     }
   }
@@ -68,14 +79,6 @@ impl Drop for VkInstances {
   fn drop(&mut self) {
     unsafe { self.vk_instance.destroy_instance(None); }
   }
-}
-
-#[derive(Hash, PartialEq, Eq, Copy, Clone)]
-pub enum GPUQueueType {
-  Graphics,
-  Compute,
-  Transfer,
-  Present,
 }
 
 pub struct VkContext {
@@ -110,7 +113,7 @@ impl VkContext {
         &vk_instances.vk_instance,
         gpu,
         &vk_instances.surface_instance,
-        surface.inner,
+        surface.inner(),
       )
       .ok_or("can't find needed queues".to_string())?;
 
@@ -165,47 +168,20 @@ impl VkContext {
     present_mode: vk::PresentModeKHR,
     old_swapchain: Option<AdSwapchain>,
   ) -> Result<AdSwapchain, String> {
-    let swapchain_info = vk::SwapchainCreateInfoKHR::default()
-      .surface(surface.inner)
-      .old_swapchain(old_swapchain.as_ref().map(|x| x.inner).unwrap_or(vk::SwapchainKHR::null()))
-      .min_image_count(image_count)
-      .image_color_space(color_space)
-      .image_format(format)
-      .image_extent(resolution)
-      .image_usage(usage)
-      .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-      .pre_transform(pre_transform)
-      .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-      .present_mode(present_mode)
-      .clipped(true)
-      .image_array_layers(1);
-
-    unsafe {
-      let swapchain = self
-        .swapchain_device
-        .create_swapchain(&swapchain_info, None)
-        .map_err(|e| format!("at vk swapchain create: {e}"))?;
-      let images = self
-        .swapchain_device
-        .get_swapchain_images(swapchain)
-        .map_err(|e| format!("at getting swapchain images: {e}"))?;
-      Ok(AdSwapchain {
-        swapchain_device: Arc::clone(&self.swapchain_device),
-        surface,
-        gpu: self.gpu,
-        present_queue: Arc::clone(&self.queues[&GPUQueueType::Present]),
-        inner: swapchain,
-        images,
-        image_count,
-        color_space,
-        format,
-        resolution,
-        usage,
-        pre_transform,
-        present_mode,
-        initialized: false,
-      })
-    }
+    AdSwapchain::new(
+      self.swapchain_device.clone(),
+      surface,
+      self.gpu,
+      self.queues[&GPUQueueType::Present].clone(),
+      image_count,
+      color_space,
+      format,
+      resolution,
+      usage,
+      pre_transform,
+      present_mode,
+      old_swapchain
+    )
   }
 
   pub fn create_ad_semaphore(&self, flags: vk::SemaphoreCreateFlags)
@@ -215,7 +191,7 @@ impl VkContext {
         .vk_device
         .create_semaphore(&vk::SemaphoreCreateInfo::default().flags(flags), None)
         .map_err(|e| format!("at create vk semaphore: {e}"))?;
-      Ok(AdSemaphore { vk_device: Arc::clone(&self.vk_device), inner: semaphore })
+      Ok(AdSemaphore::new(self.vk_device.clone(), semaphore))
     }
   }
 
@@ -225,7 +201,7 @@ impl VkContext {
         .vk_device
         .create_fence(&vk::FenceCreateInfo::default().flags(flags), None)
         .map_err(|e| format!("at create vk semaphore: {e}"))?;
-      Ok(AdFence { vk_device: Arc::clone(&self.vk_device), inner: fence })
+      Ok(AdFence::new(self.vk_device.clone(), fence))
     }
   }
 
@@ -258,14 +234,7 @@ impl VkContext {
         .vk_device
         .bind_buffer_memory(buffer, allocation.memory(), allocation.offset())
         .map_err(|e| format!("at buffer mem bind: {e}"))?;
-      Ok(AdBuffer {
-        inner: buffer,
-        size,
-        name: name.to_string(),
-        vk_device: Arc::clone(&self.vk_device),
-        allocator,
-        allocation: Some(allocation),
-      })
+      Ok(AdBuffer::new(self.vk_device.clone(), buffer, name, size, allocator, Some(allocation)))
     }
   }
 
@@ -280,20 +249,17 @@ impl VkContext {
     cmd_buffer: &AdCommandBuffer
   ) -> Result<AdBuffer, String> {
     let mut stage_buffer = self.create_ad_buffer(
-      Arc::clone(&allocator),
+      allocator.clone(),
       MemoryLocation::CpuToGpu,
       &format!("{name}_stage_buffer"),
       flags,
       data.len() as u64,
       vk::BufferUsageFlags::TRANSFER_SRC,
     )?;
-    stage_buffer
-      .allocation
-      .as_mut()
-      .map(|alloc| {alloc.mapped_slice_mut().map(|x| {x[..data.len()].copy_from_slice(data)})})
-      .ok_or("Error allocating stage buffer")?;
+    stage_buffer.write_data(0, data)?;
+
     let buffer = self.create_ad_buffer(
-      Arc::clone(&allocator),
+      allocator.clone(),
       mem_location,
       name,
       flags,
@@ -302,8 +268,8 @@ impl VkContext {
     )?;
     cmd_buffer.begin(vk::CommandBufferBeginInfo::default())?;
     cmd_buffer.copy_buffer_to_buffer(
-      stage_buffer.inner,
-      buffer.inner,
+      &stage_buffer,
+      &buffer,
       &[vk::BufferCopy{ src_offset: 0, dst_offset: 0, size: data.len() as u64 }]
     );
     cmd_buffer.end()?;
@@ -368,16 +334,7 @@ impl VkContext {
         .vk_device
         .bind_image_memory(image, allocation.memory(), allocation.offset())
         .map_err(|e| format!("at image mem bind: {e}"))?;
-
-      Ok(AdImage2D {
-        inner: image,
-        format,
-        resolution,
-        name: name.to_string(),
-        vk_device: Arc::clone(&self.vk_device),
-        allocator: Some(allocator),
-        allocation: Some(allocation),
-      })
+      Ok(AdImage2D::new(self.vk_device.clone(), image, name, resolution, format, allocator, Some(allocation)))
     }
   }
 
@@ -398,7 +355,7 @@ impl VkContext {
 
     let mut stage_buffer = self
       .create_ad_buffer(
-        Arc::clone(&allocator),
+        allocator.clone(),
         MemoryLocation::CpuToGpu,
         &format!("{name}_stage_buffer"),
         vk::BufferCreateFlags::default(),
@@ -407,13 +364,7 @@ impl VkContext {
       )
       .map_err(|e| format!("at stage buffer create:: {e}"))?;
 
-    stage_buffer
-      .allocation
-      .as_mut()
-      .ok_or("stage buffer not allocated, hmmm".to_string())?
-      .mapped_slice_mut()
-      .ok_or("at mapping stage buffer memory to CPU".to_string())?
-      .copy_from_slice(image_rgba8.as_raw().as_slice());
+    stage_buffer.write_data(0, image_rgba8.as_raw().as_slice())?;
 
     let image_2d = self.create_ad_image_2d(
       allocator,
@@ -440,7 +391,7 @@ impl VkContext {
       &[],
       &[],
       &[vk::ImageMemoryBarrier::default()
-        .image(image_2d.inner)
+        .image(image_2d.inner())
         .subresource_range(
           vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -453,12 +404,12 @@ impl VkContext {
         .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
         .old_layout(vk::ImageLayout::UNDEFINED)
         .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-        .src_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)
-        .dst_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)],
+        .src_queue_family_index(self.queues[&GPUQueueType::Transfer].family_idx())
+        .dst_queue_family_index(self.queues[&GPUQueueType::Transfer].family_idx())],
     );
     cmd_buffer.copy_buffer_to_image(
-      stage_buffer.inner,
-      image_2d.inner,
+      stage_buffer.inner(),
+      image_2d.inner(),
       vk::ImageLayout::TRANSFER_DST_OPTIMAL,
       &[vk::BufferImageCopy::default()
         .image_subresource(
@@ -480,7 +431,7 @@ impl VkContext {
       &[],
       &[],
       &[vk::ImageMemoryBarrier::default()
-        .image(image_2d.inner)
+        .image(image_2d.inner())
         .subresource_range(
           vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -493,8 +444,8 @@ impl VkContext {
         .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
         .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
         .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .src_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)
-        .dst_queue_family_index(self.queues[&GPUQueueType::Transfer].qf_idx)],
+        .src_queue_family_index(self.queues[&GPUQueueType::Transfer].family_idx())
+        .dst_queue_family_index(self.queues[&GPUQueueType::Transfer].family_idx())],
     );
 
     cmd_buffer.end()?;
@@ -509,7 +460,7 @@ impl VkContext {
   }
 
   pub fn create_ad_render_pass_builder(&self, flags: vk::RenderPassCreateFlags) -> AdRenderPassBuilder {
-    AdRenderPassBuilder::new(Arc::clone(&self.vk_device), flags)
+    AdRenderPassBuilder::new(self.vk_device.clone(), flags)
   }
 
   pub fn create_ad_shader(&self, create_info: &vk::ShaderModuleCreateInfo)
@@ -517,11 +468,7 @@ impl VkContext {
     unsafe {
       let shader_module = self.vk_device.create_shader_module(create_info, None)
         .map_err(|e| format!("error creating vk shader module: {e}"))?;
-      Ok(AdShaderModule {
-        vk_device: Arc::clone(&self.vk_device),
-        inner: shader_module,
-        dropped: false,
-      })
+      Ok(AdShaderModule::new(self.vk_device.clone(), shader_module))
     }
   }
 
@@ -542,7 +489,7 @@ impl VkContext {
         None
       )
         .map_err(|e| format!("at creating vk descriptor set layout: {e}"))?;
-      Ok(AdDescriptorSetLayout { vk_device: Arc::clone(&self.vk_device), inner: descriptor_set_layout })
+      Ok(AdDescriptorSetLayout::new(self.vk_device.clone(), descriptor_set_layout))
     }
   }
 
@@ -561,11 +508,11 @@ impl VkContext {
         None
       )
         .map_err(|e| format!("at creating vk descriptor pool: {e}"))?;
-      Ok(AdDescriptorPool {
-        vk_device: Arc::clone(&self.vk_device),
-        free_sets_supported: flags.contains(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
-        inner: descriptor_pool
-      })
+      Ok(AdDescriptorPool::new(
+        self.vk_device.clone(),
+        descriptor_pool,
+        flags.contains(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
+      ))
     }
   }
 }
