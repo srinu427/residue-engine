@@ -12,6 +12,7 @@ use ash_wrappers::ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueT
 use ash_wrappers::ash_sync_wrappers::{AdFence, AdSemaphore};
 use ash_wrappers::{vk, Allocator, MemoryLocation, VkContext};
 
+mod analyze_shader;
 
 pub struct RenderManager {
   triangle_frame_buffers: Vec<AdFrameBuffer>,
@@ -248,6 +249,8 @@ impl RenderManager {
       .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.vert.spv"))?;
     let mut frag_shader = vk_context
       .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.frag.spv"))?;
+
+    analyze_shader::analyze_shader(&PathBuf::from("render-manager/shaders/triangle.vert.spv"));
 
     let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
       .cull_mode(vk::CullModeFlags::BACK)

@@ -21,7 +21,6 @@ use ash_common_imports::gpu_allocator::vulkan::{
 
 use ash_common_imports::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 pub use ash_common_imports::raw_window_handle;
-use ash_common_imports::spirv_cross::{spirv, glsl};
 use ash_data_wrappers::{AdBuffer, AdImage2D};
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 
@@ -528,14 +527,4 @@ impl Drop for VkContext {
         .destroy_debug_utils_messenger(self.dbg_utils_messenger, None);
     }
   }
-}
-
-pub fn parse_spv_resources(path: &Path) -> Result<spirv::Ast<glsl::Target>, String> {
-  let mut file = std::fs::File::open(path)
-    .map_err(|e| format!("at opening spv file: {e}"))?;
-  let words = ash::util::read_spv(&mut file)
-    .map_err(|e| format!("at reading spv file: {e}"))?;
-  let module = spirv::Module::from_words(&words);
-  spirv::Ast::<glsl::Target>::parse(&module)
-    .map_err(|e| format!("at parsing spv file: {e}"))
 }
