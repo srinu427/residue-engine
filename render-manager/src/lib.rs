@@ -13,6 +13,7 @@ use ash_wrappers::ash_sync_wrappers::{AdFence, AdSemaphore};
 use ash_wrappers::{vk, Allocator, MemoryLocation, VkContext};
 
 mod analyze_shader;
+mod mesh_3d_render;
 
 pub struct RenderManager {
   triangle_frame_buffers: Vec<AdFrameBuffer>,
