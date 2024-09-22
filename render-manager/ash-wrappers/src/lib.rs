@@ -81,7 +81,7 @@ pub enum GPUQueueType {
 pub struct VkContext {
   swapchain_device: Arc<khr::swapchain::Device>,
   pub queues: HashMap<GPUQueueType, Arc<AdQueue>>,
-  pub vk_device: Arc<ash::Device>,
+  vk_device: Arc<ash::Device>,
   pub gpu: vk::PhysicalDevice,
   #[cfg(debug_assertions)]
   dbg_utils_messenger: vk::DebugUtilsMessengerEXT,
@@ -151,6 +151,10 @@ impl VkContext {
         swapchain_device,
       })
     }
+  }
+
+  pub fn get_vk_device(&self) -> Arc<ash::Device> {
+    self.vk_device.clone()
   }
 
   pub fn create_ad_swapchain(

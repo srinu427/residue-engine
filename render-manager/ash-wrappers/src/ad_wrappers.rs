@@ -488,9 +488,9 @@ impl AdCommandBuffer {
     }
   }
 
-  pub fn draw(&self) {
+  pub fn draw(&self, vert_count: u32) {
     unsafe {
-      self.vk_device.cmd_draw(self.inner, 3, 1, 0, 0);
+      self.vk_device.cmd_draw(self.inner, vert_count, 1, 0, 0);
     }
   }
 

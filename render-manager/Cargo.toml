@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 ash-wrappers = {path = "ash-wrappers"}
+triangle-mesh-renderer = {path = "triangle-mesh-renderer"}
