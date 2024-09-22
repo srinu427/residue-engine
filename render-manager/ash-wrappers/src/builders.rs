@@ -1,5 +1,5 @@
-use crate::ad_wrappers::AdRenderPass;
-use ash::vk;
+use ash_pipeline_wrappers::AdRenderPass;
+use ash_common_imports::ash::{self, vk};
 use std::sync::Arc;
 
 pub struct AdRenderPassBuilder<'a> {
@@ -48,9 +48,6 @@ impl<'a> AdRenderPassBuilder<'a> {
         .create_render_pass(&render_pass_create_info, None)
         .map_err(|e| format!("at creating render pass: {e}"))?
     };
-    Ok(AdRenderPass {
-      vk_device: self.vk_device,
-      inner: vk_render_pass,
-      subpass_count: self.sub_pass_descriptions.len() as u32 })
+    Ok(AdRenderPass::new(self.vk_device, vk_render_pass))
   }
 }

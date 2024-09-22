@@ -1,0 +1,9 @@
+[package]
+name = "ash-pipeline-wrappers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash-common-imports = {path = "../ash-common-imports"}
+ash-sync-wrappers = {path = "../ash-sync-wrappers"}
+ash-data-wrappers = {path = "../ash-data-wrappers"}

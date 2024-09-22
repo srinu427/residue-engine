@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
-use ash_wrappers::{ad_wrappers::{data_wrappers::{AdBuffer, Allocator}, AdCommandBuffer, AdCommandPool, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdPipeline, AdRenderPass}, vk, GPUQueueType, VkContext};
+use ash_wrappers::{ash_data_wrappers::AdBuffer, ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdPipeline, AdRenderPass}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, vk, Allocator, VkContext};
+
 
 #[repr(C)]
 pub struct TriMeshVertex {
@@ -154,14 +155,14 @@ impl TriMeshRenderer {
       0,
       vk::DescriptorType::STORAGE_BUFFER,
       &[],
-      &[vk::DescriptorBufferInfo::default().offset(0).range(vert_buffer.size).buffer(vert_buffer.inner)]
+      &[vk::DescriptorBufferInfo::default().offset(0).range(vert_buffer.size()).buffer(vert_buffer.inner())]
     );
     dset.write_and_update(
       1,
       0,
       vk::DescriptorType::STORAGE_BUFFER,
       &[],
-      &[vk::DescriptorBufferInfo::default().offset(0).range(vert_buffer.size).buffer(vert_buffer.inner)]
+      &[vk::DescriptorBufferInfo::default().offset(0).range(vert_buffer.size()).buffer(vert_buffer.inner())]
     );
     self.meshes.push(TriMesh { vert_buffer, indx_buffer, indx_len: indices.len() as u32, dset });
     Ok(())
@@ -170,7 +171,7 @@ impl TriMeshRenderer {
   pub fn render_meshes(&self, cmd_buffer: &AdCommandBuffer, frame_buffer: &AdFrameBuffer) {
     cmd_buffer.begin_render_pass(
       vk::RenderPassBeginInfo::default()
-        .render_pass(self.render_pass.inner)
+        .render_pass(self.render_pass.inner())
         .render_area(vk::Rect2D {
           offset: vk::Offset2D { x: 0, y: 0 },
           extent: vk::Extent2D { width: 800, height: 600 },

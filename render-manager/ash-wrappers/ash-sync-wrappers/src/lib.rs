@@ -1,9 +1,19 @@
-use ash::vk;
+use ash_common_imports::ash::{self, vk};
 use std::sync::Arc;
 
 pub struct AdSemaphore {
-  pub(crate) vk_device: Arc<ash::Device>,
-  pub inner: vk::Semaphore,
+  vk_device: Arc<ash::Device>,
+  inner: vk::Semaphore,
+}
+
+impl AdSemaphore {
+  pub fn new(vk_device: Arc<ash::Device>, vk_semaphore: vk::Semaphore) -> Self {
+    Self { vk_device, inner: vk_semaphore }
+  }
+
+  pub fn inner(&self) -> vk::Semaphore {
+    self.inner
+  }
 }
 
 impl Drop for AdSemaphore {
@@ -15,11 +25,19 @@ impl Drop for AdSemaphore {
 }
 
 pub struct AdFence {
-  pub(crate) vk_device: Arc<ash::Device>,
-  pub inner: vk::Fence,
+  vk_device: Arc<ash::Device>,
+  inner: vk::Fence,
 }
 
 impl AdFence {
+  pub fn new(vk_device: Arc<ash::Device>, vk_fence: vk::Fence) -> Self {
+    Self { vk_device, inner: vk_fence }
+  }
+
+  pub fn inner(&self) -> vk::Fence {
+    self.inner
+  }
+
   pub fn wait(&self, timeout: u64) -> Result<(), String> {
     unsafe {
       self

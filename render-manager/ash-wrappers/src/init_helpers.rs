@@ -1,5 +1,5 @@
-use crate::ad_wrappers::AdQueue;
-use ash::{ext, khr, vk};
+use ash_queue_wrappers::AdQueue;
+use ash_common_imports::ash::{self, ext, khr, vk};
 use std::borrow::Cow;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
@@ -273,11 +273,7 @@ pub unsafe fn create_device_and_queues(
   let mut queues = Vec::with_capacity(4);
   for x in queue_indices {
     let cur_q_idx = q_idx_map.get_mut(&x).ok_or("invalid queue".to_string())?;
-    queues.push(AdQueue {
-      vk_device: Arc::clone(&device),
-      qf_idx: x,
-      inner: device.get_device_queue(x, *cur_q_idx - 1),
-    });
+    queues.push(AdQueue::new(device.clone(), x, device.get_device_queue(x, *cur_q_idx - 1)));
     if *cur_q_idx != 1 {
       *cur_q_idx -= 1;
     }

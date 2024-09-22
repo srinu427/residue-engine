@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use render_manager::{AdSurface, RenderManager, VkInstances};
+use render_manager::{ AdSurface, RenderManager, VkInstances};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
