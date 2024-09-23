@@ -95,7 +95,7 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::RedrawRequested => {
         self.render_manager.as_mut().map(
           |x| for _ in 0..3 {
-            if let Ok(d_res) = x.draw() {
+            if let Ok(d_res) = x.draw().inspect_err(|e| eprintln!("{}", e)) {
               if !d_res {break}
             }
           }
@@ -105,6 +105,6 @@ impl ApplicationHandler for AppActivity {
   }
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    self.render_manager.as_mut().map(|x| x.draw());
+    self.render_manager.as_mut().map(|x| x.draw().inspect_err(|e| eprintln!("{}", e)));
   }
 }

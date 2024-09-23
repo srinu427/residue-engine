@@ -182,7 +182,7 @@ impl RenderManager {
       .swapchain
       .acquire_next_image(None, Some(&self.image_acquire_fence))
       .map_err(|e| format!("at acquiring next image: {e}"))?;
-    self.image_acquire_fence.wait(999999999)?;
+    self.image_acquire_fence.wait(999999999).map_err(|e| format!("at image acquire fence wait: {e}"))?;
     self.image_acquire_fence.reset()?;
 
     if refresh_needed {
@@ -311,6 +311,10 @@ impl RenderManager {
       self.swapchain.present_image(image_idx, vec![&self.render_semaphores[image_idx as usize]])
     {
       if e.ends_with("ERROR_OUT_OF_DATE_KHR") {
+        let _ = self
+          .swapchain
+          .refresh_resolution()
+          .inspect_err(|e| eprintln!("at refreshing swapchain res: {e}"));
         return Ok(true);
       }
     }

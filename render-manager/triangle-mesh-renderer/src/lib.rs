@@ -47,7 +47,7 @@ impl TriMeshRenderer {
         .binding(0)
         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
         .descriptor_count(1),
-        vk::DescriptorSetLayoutBinding::default()
+      vk::DescriptorSetLayoutBinding::default()
         .stage_flags(vk::ShaderStageFlags::VERTEX)
         .binding(1)
         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -144,8 +144,6 @@ impl TriMeshRenderer {
       self.cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let indices = cpu_mesh.triangles.iter().flatten().cloned().collect::<Vec<_>>();
     let ib_size = std::mem::size_of::<u32>() * indices.len();
-    println!("{:?}", indices);
-    println!("{}", ib_size);
     let indx_buffer = self.vk_context.create_ad_buffer_from_data(
       self.mesh_allocator.clone(),
       ash_wrappers::MemoryLocation::GpuOnly,
