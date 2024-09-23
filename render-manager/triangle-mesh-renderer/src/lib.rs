@@ -12,6 +12,9 @@ pub struct TriMeshVertex {
 pub struct TriMeshCPU {
   pub verts: Vec<TriMeshVertex>,
   pub triangles: Vec<[u32; 3]>,
+}
+
+impl TriMeshCPU {
 
 }
 
@@ -141,6 +144,8 @@ impl TriMeshRenderer {
       self.cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let indices = cpu_mesh.triangles.iter().flatten().cloned().collect::<Vec<_>>();
     let ib_size = std::mem::size_of::<u32>() * indices.len();
+    println!("{:?}", indices);
+    println!("{}", ib_size);
     let indx_buffer = self.vk_context.create_ad_buffer_from_data(
       self.mesh_allocator.clone(),
       ash_wrappers::MemoryLocation::GpuOnly,
@@ -164,7 +169,7 @@ impl TriMeshRenderer {
       0,
       vk::DescriptorType::STORAGE_BUFFER,
       &[],
-      &[vk::DescriptorBufferInfo::default().offset(0).range(vert_buffer.size()).buffer(vert_buffer.inner())]
+      &[vk::DescriptorBufferInfo::default().offset(0).range(indx_buffer.size()).buffer(indx_buffer.inner())]
     );
     self.meshes.push(TriMesh { vert_buffer, indx_buffer, indx_len: indices.len() as u32, dset });
     Ok(())

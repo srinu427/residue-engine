@@ -1,9 +1,16 @@
 use std::sync::{Arc, Mutex};
 
-pub use ash_wrappers::VkInstances;
 pub use ash_wrappers::ash_present_wrappers::AdSurface;
-use ash_wrappers::{ash_data_wrappers::{AdImage2D, AdImageView}, ash_pipeline_wrappers::AdFrameBuffer, ash_present_wrappers::{ AdSwapchain}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, ash_sync_wrappers::{AdFence, AdSemaphore}, vk, Allocator, MemoryLocation, VkContext};
-use triangle_mesh_renderer::{ TriMeshCPU, TriMeshRenderer, TriMeshVertex};
+pub use ash_wrappers::VkInstances;
+use ash_wrappers::{
+  ash_data_wrappers::{AdImage2D, AdImageView},
+  ash_pipeline_wrappers::AdFrameBuffer,
+  ash_present_wrappers::AdSwapchain,
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType},
+  ash_sync_wrappers::{AdFence, AdSemaphore},
+  vk, Allocator, MemoryLocation, VkContext,
+};
+use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex};
 
 pub struct RenderManager {
   triangle_frame_buffers: Vec<AdFrameBuffer>,
@@ -132,13 +139,12 @@ impl RenderManager {
       .map(|i| triangle_out_images[i].create_view(vk::ImageAspectFlags::COLOR))
       .collect::<Result<Vec<_>, _>>()?;
 
-
     let mut triangle_mesh_renderer = TriMeshRenderer::new(vk_context.clone())?;
-    let tri_verts_cpu = TriMeshCPU{
+    let tri_verts_cpu = TriMeshCPU {
       verts: vec![
-        TriMeshVertex{ pos: [0.0f32, -0.5f32, 0.0f32, 1.0f32] },
-        TriMeshVertex{ pos: [0.5f32, 0.5f32, 0.0f32, 1.0f32] },
-        TriMeshVertex{ pos: [-0.5f32, 0.5f32, 0.0f32, 1.0f32] },
+        TriMeshVertex { pos: [0.0f32, -0.5f32, 0.0f32, 1.0f32] },
+        TriMeshVertex { pos: [0.5f32, 0.5f32, 0.0f32, 1.0f32] },
+        TriMeshVertex { pos: [-0.5f32, 0.5f32, 0.0f32, 1.0f32] },
       ],
       triangles: vec![[0, 1, 2]],
     };
@@ -213,9 +219,8 @@ impl RenderManager {
 
     self.triangle_mesh_renderer.render_meshes(
       &self.render_cmd_buffers[image_idx as usize],
-      &self.triangle_frame_buffers[image_idx as usize]
+      &self.triangle_frame_buffers[image_idx as usize],
     );
-  
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
       vk::PipelineStageFlags::TRANSFER,
