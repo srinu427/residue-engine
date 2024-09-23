@@ -137,6 +137,8 @@ impl TriMeshRenderer {
       &tmp_cmd_buffer
     )?;
 
+    let tmp_cmd_buffer =
+      self.cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let indices = cpu_mesh.triangles.iter().flatten().cloned().collect::<Vec<_>>();
     let ib_size = std::mem::size_of::<u32>() * indices.len();
     let indx_buffer = self.vk_context.create_ad_buffer_from_data(
