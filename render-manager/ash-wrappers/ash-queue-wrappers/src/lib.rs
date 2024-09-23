@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use ash_common_imports::ash::{self, vk};
 use ash_data_wrappers::AdBuffer;
-use ash_pipeline_wrappers::AdDescriptorSet;
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 
 pub struct AdCommandPool {
@@ -155,11 +154,11 @@ impl AdCommandBuffer {
     &self,
     pipeline_bind_point: vk::PipelineBindPoint,
     layout: vk::PipelineLayout,
-    descriptor_sets: &[&AdDescriptorSet]
+    descriptor_sets: &[vk::DescriptorSet]
   ) {
-    let vk_descriptor_sets = descriptor_sets.iter().map(|x| x.inner).collect::<Vec<_>>();
+    // let vk_descriptor_sets = descriptor_sets.iter().map(|x| x.inner).collect::<Vec<_>>();
     unsafe {
-      self.vk_device.cmd_bind_descriptor_sets(self.inner, pipeline_bind_point, layout, 0, &vk_descriptor_sets, &[])
+      self.vk_device.cmd_bind_descriptor_sets(self.inner, pipeline_bind_point, layout, 0, &descriptor_sets, &[])
     }
   }
 

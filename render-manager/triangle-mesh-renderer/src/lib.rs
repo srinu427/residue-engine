@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
-use ash_wrappers::{ash_data_wrappers::AdBuffer, ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdPipeline, AdRenderPass}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, vk, Allocator, VkContext};
+use ash_wrappers::{ash_data_wrappers::AdBuffer, ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, AdPipeline, AdRenderPass, OwnedDSetBinding}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, vk, Allocator, VkContext};
 
 
 #[repr(C)]
@@ -19,10 +19,8 @@ impl TriMeshCPU {
 }
 
 pub struct TriMesh {
-  vert_buffer: AdBuffer,
-  indx_buffer: AdBuffer,
   indx_len: u32,
-  dset: AdDescriptorSet,
+  dset: AdOwnedDSet,
 }
 
 pub struct TriMeshRenderer {
@@ -154,26 +152,17 @@ impl TriMeshRenderer {
       &tmp_cmd_buffer
     )?;
 
-    let dset = self.dset_pool.allocate_descriptor_sets(&[&self.vert_dset_layout])?.remove(0);
-    dset.write_and_update(
-      0,
-      0,
-      vk::DescriptorType::STORAGE_BUFFER,
-      &[],
-      &[vk::DescriptorBufferInfo::default().offset(0).range(vert_buffer.size()).buffer(vert_buffer.inner())]
-    );
-    dset.write_and_update(
-      1,
-      0,
-      vk::DescriptorType::STORAGE_BUFFER,
-      &[],
-      &[vk::DescriptorBufferInfo::default().offset(0).range(indx_buffer.size()).buffer(indx_buffer.inner())]
-    );
-    self.meshes.push(TriMesh { vert_buffer, indx_buffer, indx_len: indices.len() as u32, dset });
+    let dset = self.dset_pool.allocate_owned_dset(
+      &self.vert_dset_layout,
+      HashMap::from([
+        (0, OwnedDSetBinding::StorageBuffer(vec![vert_buffer])),
+        (1, OwnedDSetBinding::StorageBuffer(vec![indx_buffer])),
+      ]))?;
+    self.meshes.push(TriMesh { indx_len: indices.len() as u32, dset });
     Ok(())
   }
 
-  pub fn render_meshes(&self, cmd_buffer: &AdCommandBuffer, frame_buffer: &AdFrameBuffer, camera_dset: &AdDescriptorSet) {
+  pub fn render_meshes(&self, cmd_buffer: &AdCommandBuffer, frame_buffer: &AdFrameBuffer, camera_dset: vk::DescriptorSet) {
     cmd_buffer.begin_render_pass(
       vk::RenderPassBeginInfo::default()
         .render_pass(self.render_pass.inner())
@@ -207,7 +196,7 @@ impl TriMeshRenderer {
       cmd_buffer.bind_descriptor_sets(
         vk::PipelineBindPoint::GRAPHICS,
         self.pipeline.layout,
-        &[&mesh.dset, camera_dset],
+        &[mesh.dset.inner, camera_dset],
       );
       cmd_buffer.draw(mesh.indx_len);
     }

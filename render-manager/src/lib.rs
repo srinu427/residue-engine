@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 pub use ash_wrappers::ash_present_wrappers::AdSurface;
 pub use ash_wrappers::VkInstances;
 use ash_wrappers::{
   ash_data_wrappers::{AdBuffer, AdImage2D, AdImageView},
-  ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer},
+  ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, OwnedDSetBinding},
   ash_present_wrappers::AdSwapchain,
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType},
   ash_sync_wrappers::{AdFence, AdSemaphore},
@@ -21,10 +21,9 @@ struct Camera3D {
 }
 
 pub struct RenderManager {
-  camera_dset: AdDescriptorSet,
+  camera_dset: AdOwnedDSet,
   camera_dset_pool: AdDescriptorPool,
   camera_dset_layout: AdDescriptorSetLayout,
-  camera_buffer: AdBuffer,
   camera: Camera3D,
   triangle_frame_buffers: Vec<AdFrameBuffer>,
   triangle_out_image_views: Vec<AdImageView>,
@@ -207,8 +206,10 @@ impl RenderManager {
       &[vk::DescriptorPoolSize::default().descriptor_count(1).ty(vk::DescriptorType::UNIFORM_BUFFER)]
     )?;
 
-    let camera_dset = camera_dset_pool.allocate_descriptor_sets(&[&camera_dset_layout])?.remove(0);
-    camera_dset.write_and_update(0, 0, vk::DescriptorType::UNIFORM_BUFFER, &[], &[vk::DescriptorBufferInfo::default().buffer(camera_buffer.inner()).offset(0).range(camera_buffer.size())]);
+    let camera_dset = camera_dset_pool.allocate_owned_dset(
+      &camera_dset_layout,
+      HashMap::from([(0, OwnedDSetBinding::UniformBuffer(vec![camera_buffer]))])
+    )?;
 
     Ok(Self {
       vk_context,
@@ -224,7 +225,6 @@ impl RenderManager {
       triangle_out_image_views,
       triangle_frame_buffers,
       camera,
-      camera_buffer,
       camera_dset_layout,
       camera_dset_pool,
       camera_dset,
@@ -275,7 +275,7 @@ impl RenderManager {
     self.triangle_mesh_renderer.render_meshes(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
-      &self.camera_dset,
+      self.camera_dset.inner,
     );
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(

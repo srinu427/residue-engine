@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use ash_common_imports::ash::{self, vk};
-use ash_data_wrappers::AdImageView;
+use ash_data_wrappers::{AdBuffer, AdImageView};
 
 // Auto destroying wrapper for a Render Pass
 pub struct AdRenderPass {
@@ -171,6 +171,32 @@ impl AdDescriptorPool {
         })
     }
   }
+
+  pub fn allocate_owned_dset(
+    &self,
+    set_layout: &AdDescriptorSetLayout,
+    bindings: HashMap<u32, OwnedDSetBinding>
+  ) -> Result<AdOwnedDSet, String> {
+    unsafe {
+      let vk_dset = self.vk_device.allocate_descriptor_sets(
+        &vk::DescriptorSetAllocateInfo::default()
+          .descriptor_pool(self.inner)
+          .set_layouts(&[set_layout.inner])
+      )
+        .map_err(|e| format!("at allocating vk descriptor sets: {e}"))?
+        .remove(0);
+
+      let mut owned_dset = AdOwnedDSet {
+        vk_device: self.vk_device.clone(),
+        pool: self.inner,
+        free_possible: self.free_sets_supported,
+        inner: vk_dset,
+        bindings,
+      };
+      owned_dset.sync_data_to_dset();
+      Ok(owned_dset)
+    }
+  }
 }
 
 impl Drop for AdDescriptorPool {
@@ -232,6 +258,83 @@ impl AdDescriptorSet {
 }
 
 impl Drop for AdDescriptorSet {
+  fn drop(&mut self) {
+    unsafe {
+      if self.free_possible {
+        let _ = self.vk_device.free_descriptor_sets(self.pool, &[self.inner])
+        .inspect_err(|e| eprintln!("error freeing descriptor set: {e}"));
+      }
+    }
+  }
+}
+
+pub enum OwnedDSetBinding {
+  StorageBuffer(Vec<AdBuffer>),
+  UniformBuffer(Vec<AdBuffer>),
+}
+
+pub struct AdOwnedDSet {
+  pub(crate) vk_device: Arc<ash::Device>,
+  pub(crate) pool: vk::DescriptorPool,
+  pub(crate) free_possible: bool,
+  pub inner: vk::DescriptorSet,
+  pub bindings: HashMap<u32, OwnedDSetBinding>
+}
+
+impl AdOwnedDSet {
+  pub fn sync_data_to_dset(
+    &mut self,
+  ) {
+    for (binding, data) in self.bindings.iter() {
+      match data {
+        OwnedDSetBinding::StorageBuffer(buffers) => {
+          let d_buffer_infos = buffers
+            .iter()
+            .map(|buffer| {
+              vk::DescriptorBufferInfo::default()
+                .buffer(buffer.inner())
+                .offset(0)
+                .range(buffer.size())
+            })
+            .collect::<Vec<_>>();
+          let write_info = vk::WriteDescriptorSet::default()
+            .dst_set(self.inner)
+            .dst_binding(*binding)
+            .dst_array_element(0)
+            .descriptor_count(buffers.len() as u32)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&d_buffer_infos);
+          unsafe {
+            self.vk_device.update_descriptor_sets(&[write_info], &[]);
+          }
+        },
+        OwnedDSetBinding::UniformBuffer(buffers) => {
+          let d_buffer_infos = buffers
+            .iter()
+            .map(|buffer| {
+              vk::DescriptorBufferInfo::default()
+                .buffer(buffer.inner())
+                .offset(0)
+                .range(buffer.size())
+            })
+            .collect::<Vec<_>>();
+          let write_info = vk::WriteDescriptorSet::default()
+            .dst_set(self.inner)
+            .dst_binding(*binding)
+            .dst_array_element(0)
+            .descriptor_count(buffers.len() as u32)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&d_buffer_infos);
+          unsafe {
+            self.vk_device.update_descriptor_sets(&[write_info], &[]);
+          }
+        },
+      }
+    }
+  }
+}
+
+impl Drop for AdOwnedDSet {
   fn drop(&mut self) {
     unsafe {
       if self.free_possible {
