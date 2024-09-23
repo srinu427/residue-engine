@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 pub use ash_wrappers::ash_present_wrappers::AdSurface;
 pub use ash_wrappers::VkInstances;
 use ash_wrappers::{
-  ash_data_wrappers::{AdImage2D, AdImageView},
-  ash_pipeline_wrappers::AdFrameBuffer,
+  ash_data_wrappers::{AdBuffer, AdImage2D, AdImageView},
+  ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer},
   ash_present_wrappers::AdSwapchain,
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType},
   ash_sync_wrappers::{AdFence, AdSemaphore},
@@ -12,7 +12,20 @@ use ash_wrappers::{
 };
 use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex};
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct Camera3D {
+  pos: glam::Vec4,
+  look_dir: glam::Vec4,
+  view_proj_mat: glam::Mat4,
+}
+
 pub struct RenderManager {
+  camera_dset: AdDescriptorSet,
+  camera_dset_pool: AdDescriptorPool,
+  camera_dset_layout: AdDescriptorSetLayout,
+  camera_buffer: AdBuffer,
+  camera: Camera3D,
   triangle_frame_buffers: Vec<AdFrameBuffer>,
   triangle_out_image_views: Vec<AdImageView>,
   triangle_out_images: Vec<AdImage2D>,
@@ -139,7 +152,15 @@ impl RenderManager {
       .map(|i| triangle_out_images[i].create_view(vk::ImageAspectFlags::COLOR))
       .collect::<Result<Vec<_>, _>>()?;
 
-    let mut triangle_mesh_renderer = TriMeshRenderer::new(vk_context.clone())?;
+      let camera_dset_layout = vk_context.create_ad_descriptor_set_layout(&[
+        vk::DescriptorSetLayoutBinding::default()
+          .binding(0)
+          .stage_flags(vk::ShaderStageFlags::VERTEX)
+          .descriptor_count(1)
+          .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+      ])?;
+
+    let mut triangle_mesh_renderer = TriMeshRenderer::new(vk_context.clone(), &camera_dset_layout)?;
     let tri_verts_cpu = TriMeshCPU {
       verts: vec![
         TriMeshVertex { pos: [0.0f32, -0.5f32, 0.0f32, 1.0f32] },
@@ -160,6 +181,35 @@ impl RenderManager {
       })
       .collect::<Result<Vec<_>, String>>()?;
 
+    let vp_mat = glam::Mat4::perspective_rh(1.0, 1.333, 0.1, 1000.0) * glam::Mat4::look_at_rh(
+      glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 1.0f32 },
+      glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 0.0f32 },
+      glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 });
+    let camera = Camera3D{
+      pos: glam::vec4(0.0, 0.0, 1.0, 0.0),
+      look_dir: glam::vec4(0.0, 0.0, 0.0, 0.0),
+      view_proj_mat: vp_mat
+    };
+    
+    let mut camera_buffer = vk_context.create_ad_buffer(
+      gen_allocator.clone(),
+      MemoryLocation::CpuToGpu,
+      &format!("camera_buffer"),
+      vk::BufferCreateFlags::empty(),
+      std::mem::size_of::<Camera3D>() as u64,
+      vk::BufferUsageFlags::UNIFORM_BUFFER,
+    )?;
+    camera_buffer.write_data(0, unsafe { std::slice::from_raw_parts([camera].as_ptr() as *const u8, std::mem::size_of::<Camera3D>()) })?;
+
+    let camera_dset_pool = vk_context.create_ad_descriptor_pool(
+      vk::DescriptorPoolCreateFlags::empty(),
+      1,
+      &[vk::DescriptorPoolSize::default().descriptor_count(1).ty(vk::DescriptorType::UNIFORM_BUFFER)]
+    )?;
+
+    let camera_dset = camera_dset_pool.allocate_descriptor_sets(&[&camera_dset_layout])?.remove(0);
+    camera_dset.write_and_update(0, 0, vk::DescriptorType::UNIFORM_BUFFER, &[], &[vk::DescriptorBufferInfo::default().buffer(camera_buffer.inner()).offset(0).range(camera_buffer.size())]);
+
     Ok(Self {
       vk_context,
       swapchain,
@@ -173,6 +223,11 @@ impl RenderManager {
       triangle_out_images,
       triangle_out_image_views,
       triangle_frame_buffers,
+      camera,
+      camera_buffer,
+      camera_dset_layout,
+      camera_dset_pool,
+      camera_dset,
     })
   }
 
@@ -220,6 +275,7 @@ impl RenderManager {
     self.triangle_mesh_renderer.render_meshes(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
+      &self.camera_dset,
     );
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(

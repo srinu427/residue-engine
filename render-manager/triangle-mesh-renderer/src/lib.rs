@@ -37,7 +37,7 @@ pub struct TriMeshRenderer {
 }
 
 impl TriMeshRenderer {
-  pub fn new(vk_context: Arc<VkContext>) -> Result<Self, String> {
+  pub fn new(vk_context: Arc<VkContext>, cam_dset_layout: &AdDescriptorSetLayout) -> Result<Self, String> {
     let mesh_allocator = Arc::new(Mutex::new(vk_context.create_allocator()?));
     let cmd_pool = vk_context.queues[&GPUQueueType::Transfer]
       .create_ad_command_pool(vk::CommandPoolCreateFlags::TRANSIENT)?;
@@ -100,14 +100,14 @@ impl TriMeshRenderer {
     let mut frag_shader = vk_context
       .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.frag.spv"))?;
     let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
-      .cull_mode(vk::CullModeFlags::BACK)
+      .cull_mode(vk::CullModeFlags::NONE)
       .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
       .polygon_mode(vk::PolygonMode::FILL)
       .line_width(1.0);
 
     let pipeline = render_pass.create_ad_g_pipeline(
       0,
-      &[&vert_dset_layout],
+      &[&vert_dset_layout, cam_dset_layout],
       HashMap::from([
         (vk::ShaderStageFlags::VERTEX, &vert_shader),
         (vk::ShaderStageFlags::FRAGMENT, &frag_shader),
@@ -173,7 +173,7 @@ impl TriMeshRenderer {
     Ok(())
   }
 
-  pub fn render_meshes(&self, cmd_buffer: &AdCommandBuffer, frame_buffer: &AdFrameBuffer) {
+  pub fn render_meshes(&self, cmd_buffer: &AdCommandBuffer, frame_buffer: &AdFrameBuffer, camera_dset: &AdDescriptorSet) {
     cmd_buffer.begin_render_pass(
       vk::RenderPassBeginInfo::default()
         .render_pass(self.render_pass.inner())
@@ -207,7 +207,7 @@ impl TriMeshRenderer {
       cmd_buffer.bind_descriptor_sets(
         vk::PipelineBindPoint::GRAPHICS,
         self.pipeline.layout,
-        &[&mesh.dset],
+        &[&mesh.dset, camera_dset],
       );
       cmd_buffer.draw(mesh.indx_len);
     }
