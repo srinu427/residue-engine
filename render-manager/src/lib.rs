@@ -182,7 +182,7 @@ impl RenderManager {
       .swapchain
       .acquire_next_image(None, Some(&self.image_acquire_fence))
       .map_err(|e| format!("at acquiring next image: {e}"))?;
-    self.image_acquire_fence.wait(999999999).map_err(|e| format!("at image acquire fence wait: {e}"))?;
+    self.image_acquire_fence.wait(999999999)?;
     self.image_acquire_fence.reset()?;
 
     if refresh_needed {
