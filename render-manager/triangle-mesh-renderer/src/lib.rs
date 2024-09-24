@@ -1,12 +1,12 @@
 use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
-use ash_wrappers::{ash_data_wrappers::AdBuffer, ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, AdPipeline, AdRenderPass, OwnedDSetBinding}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, vk, Allocator, VkContext};
+use ash_wrappers::{ ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, AdPipeline, AdRenderPass, OwnedDSetBinding}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, vk, Allocator, VkContext};
 
 
 #[repr(C)]
 pub struct TriMeshVertex {
   pub pos: [f32; 4],
-  // uv: [f32; 2],
+  pub uv: [f32; 4],
 }
 
 pub struct TriMeshCPU {

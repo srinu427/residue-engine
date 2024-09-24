@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::{Arc, Mutex}};
 pub use ash_wrappers::ash_present_wrappers::AdSurface;
 pub use ash_wrappers::VkInstances;
 use ash_wrappers::{
-  ash_data_wrappers::{AdBuffer, AdImage2D, AdImageView},
+  ash_data_wrappers::{ AdImage2D, AdImageView},
   ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, OwnedDSetBinding},
   ash_present_wrappers::AdSwapchain,
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType},
@@ -162,9 +162,9 @@ impl RenderManager {
     let mut triangle_mesh_renderer = TriMeshRenderer::new(vk_context.clone(), &camera_dset_layout)?;
     let tri_verts_cpu = TriMeshCPU {
       verts: vec![
-        TriMeshVertex { pos: [0.0f32, -0.5f32, 0.0f32, 1.0f32] },
-        TriMeshVertex { pos: [0.5f32, 0.5f32, 0.0f32, 1.0f32] },
-        TriMeshVertex { pos: [-0.5f32, 0.5f32, 0.0f32, 1.0f32] },
+        TriMeshVertex { pos: [0.0f32, -0.5f32, 0.0f32, 1.0f32], uv: [0.0, 0.0, 0.0, 0.0] },
+        TriMeshVertex { pos: [0.5f32, 0.5f32, 0.0f32, 1.0f32], uv: [0.0, 1.0, 0.0, 0.0] },
+        TriMeshVertex { pos: [-0.5f32, 0.5f32, 0.0f32, 1.0f32], uv: [1.0, 1.0, 0.0, 0.0] },
       ],
       triangles: vec![[0, 1, 2]],
     };

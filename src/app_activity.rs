@@ -56,7 +56,7 @@ impl ApplicationHandler for AppActivity {
   fn window_event(
     &mut self,
     event_loop: &ActiveEventLoop,
-    window_id: WindowId,
+    _window_id: WindowId,
     event: WindowEvent,
   ) {
     // println!("event: {event:?}");
