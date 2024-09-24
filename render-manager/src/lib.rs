@@ -113,7 +113,7 @@ impl RenderManager {
       })
       .collect::<Result<Vec<_>, _>>()?;
 
-    render_cmd_buffers[0].begin(vk::CommandBufferBeginInfo::default())?;
+    render_cmd_buffers[0].begin(vk::CommandBufferUsageFlags::default())?;
     render_cmd_buffers[0].pipeline_barrier(
       vk::PipelineStageFlags::TRANSFER,
       vk::PipelineStageFlags::TRANSFER,
@@ -269,7 +269,7 @@ impl RenderManager {
     let current_sc_res = self.swapchain.resolution();
 
     self.render_cmd_buffers[image_idx as usize]
-      .begin(vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::default()))
+      .begin(vk::CommandBufferUsageFlags::default())
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
 
     self.triangle_mesh_renderer.render_meshes(

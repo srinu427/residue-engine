@@ -246,7 +246,7 @@ impl AdSwapchain {
 
   pub fn initialize(&mut self, cmd_buffer: &AdCommandBuffer) -> Result<(), String> {
     if !self.initialized {
-      cmd_buffer.begin(vk::CommandBufferBeginInfo::default())?;
+      cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
       cmd_buffer.pipeline_barrier(
         vk::PipelineStageFlags::TRANSFER,
         vk::PipelineStageFlags::TRANSFER,

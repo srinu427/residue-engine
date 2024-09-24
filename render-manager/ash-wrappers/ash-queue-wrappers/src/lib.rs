@@ -58,11 +58,11 @@ pub struct AdCommandBuffer {
 }
 
 impl AdCommandBuffer {
-  pub fn begin(&self, info: vk::CommandBufferBeginInfo) -> Result<(), String> {
+  pub fn begin(&self, flags: vk::CommandBufferUsageFlags) -> Result<(), String> {
     unsafe {
       self
         .vk_device
-        .begin_command_buffer(self.inner, &info)
+        .begin_command_buffer(self.inner, &vk::CommandBufferBeginInfo::default().flags(flags))
         .map_err(|e| format!("at cmd buffer begin: {e}"))
     }
   }

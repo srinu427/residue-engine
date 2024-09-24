@@ -269,7 +269,7 @@ impl VkContext {
       data.len() as u64,
       usage | vk::BufferUsageFlags::TRANSFER_DST,
     )?;
-    cmd_buffer.begin(vk::CommandBufferBeginInfo::default())?;
+    cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
     cmd_buffer.copy_buffer_to_buffer(
       &stage_buffer,
       &buffer,
@@ -385,7 +385,7 @@ impl VkContext {
       .swap_remove(0);
     let upload_fence = self.create_ad_fence(vk::FenceCreateFlags::default())?;
 
-    cmd_buffer.begin(vk::CommandBufferBeginInfo::default())?;
+    cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
 
     cmd_buffer.pipeline_barrier(
       vk::PipelineStageFlags::BOTTOM_OF_PIPE,
