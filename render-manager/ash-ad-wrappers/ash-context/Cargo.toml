@@ -1,0 +1,8 @@
+[package]
+name = "ash-context"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash = {version = "0.38.0+1.3.281"}
+gpu-allocator = "0.27.0"

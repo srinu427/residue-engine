@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 glam = "0.29.0"
-ash-wrappers = {path = "ash-wrappers"}
-triangle-mesh-renderer = {path = "triangle-mesh-renderer"}
+ash-ad-wrappers = {path = "ash-ad-wrappers"}
+# triangle-mesh-renderer = {path = "triangle-mesh-renderer"}

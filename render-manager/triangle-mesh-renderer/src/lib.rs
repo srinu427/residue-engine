@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
-use ash_wrappers::{ ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, AdPipeline, AdRenderPass, OwnedDSetBinding}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType}, vk, Allocator, VkContext};
+use ash_ad_wrappers::{ash_context::{ash::vk, gpu_allocator::vulkan::Allocator, AdAshDevice, GPUQueueType}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool}};
+
 
 
 #[repr(C)]
@@ -31,11 +32,11 @@ pub struct TriMeshRenderer {
   pub render_pass: AdRenderPass,
   vert_dset_layout: AdDescriptorSetLayout,
   dset_pool: AdDescriptorPool,
-  vk_context: Arc<VkContext>,
+  vk_context: Arc<AdAshDevice>,
 }
 
 impl TriMeshRenderer {
-  pub fn new(vk_context: Arc<VkContext>, cam_dset_layout: &AdDescriptorSetLayout) -> Result<Self, String> {
+  pub fn new(vk_context: Arc<AdAshDevice>, cam_dset_layout: &AdDescriptorSetLayout) -> Result<Self, String> {
     let mesh_allocator = Arc::new(Mutex::new(vk_context.create_allocator()?));
     let cmd_pool = vk_context.queues[&GPUQueueType::Transfer]
       .create_ad_command_pool(vk::CommandPoolCreateFlags::TRANSIENT)?;
@@ -144,7 +145,7 @@ impl TriMeshRenderer {
     let ib_size = std::mem::size_of::<u32>() * indices.len();
     let indx_buffer = self.vk_context.create_ad_buffer_from_data(
       self.mesh_allocator.clone(),
-      ash_wrappers::MemoryLocation::GpuOnly,
+      MemoryLocation::GpuOnly,
       name,
       vk::BufferCreateFlags::empty(),
       vk::BufferUsageFlags::STORAGE_BUFFER,

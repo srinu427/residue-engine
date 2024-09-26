@@ -1,16 +1,12 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
-pub use ash_wrappers::ash_present_wrappers::AdSurface;
-pub use ash_wrappers::VkInstances;
-use ash_wrappers::{
-  ash_data_wrappers::{ AdImage2D, AdImageView},
-  ash_pipeline_wrappers::{AdDescriptorPool, AdDescriptorSetLayout, AdFrameBuffer, AdOwnedDSet, OwnedDSetBinding},
-  ash_present_wrappers::AdSwapchain,
-  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, GPUQueueType},
-  ash_sync_wrappers::{AdFence, AdSemaphore},
-  vk, Allocator, MemoryLocation, VkContext,
+use ash_ad_wrappers::{
+  ash_context::{ash::vk, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshInstance},
+  ash_data_wrappers::{AdImage2D, AdImageView},
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool},
+  ash_surface_wrappers::AdSwapchain,
+  ash_sync_wrappers::{AdFence, AdSemaphore}
 };
-use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -36,12 +32,12 @@ pub struct RenderManager {
   render_cmd_pool: AdCommandPool,
   image_acquire_fence: AdFence,
   swapchain: AdSwapchain,
-  vk_context: Arc<VkContext>,
+  ash_instance: Arc<AdAshInstance>,
 }
 
 impl RenderManager {
-  pub fn new(vk_instances: Arc<VkInstances>, surface: Arc<AdSurface>) -> Result<Self, String> {
-    let vk_context = Arc::new(VkContext::new(vk_instances, &surface)?);
+  pub fn new(ash_instance: Arc<AdAshInstance>, surface: Arc<AdSurface>) -> Result<Self, String> {
+    let vk_context = Arc::new(VkContext::new(ash_instance, &surface)?);
 
     let surface_formats = surface.get_gpu_formats(vk_context.gpu)?;
     let surface_caps = surface.get_gpu_capabilities(vk_context.gpu)?;

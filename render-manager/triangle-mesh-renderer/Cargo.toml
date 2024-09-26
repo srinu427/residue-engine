@@ -4,5 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ash-wrappers = {path = "../ash-wrappers"}
-common-rendering-traits = {path = "../common-rendering-traits"}
+ash-ad-wrappers = {path = "../ash-ad-wrappers"}

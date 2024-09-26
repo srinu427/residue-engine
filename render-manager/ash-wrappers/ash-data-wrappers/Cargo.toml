@@ -1,7 +1,0 @@
-[package]
-name = "ash-data-wrappers"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-ash-common-imports = {path = "../ash-common-imports"}
