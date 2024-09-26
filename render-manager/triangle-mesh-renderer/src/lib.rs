@@ -1,8 +1,10 @@
 use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
-use ash_ad_wrappers::{ash_context::{ash::vk, gpu_allocator::vulkan::Allocator, AdAshDevice, GPUQueueType}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool}};
-
-
+use ash_ad_wrappers::{
+  ash_context::{ash::vk, gpu_allocator::vulkan::Allocator, AdAshDevice, GPUQueueType},
+  ash_data_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout},
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool}
+};
 
 #[repr(C)]
 pub struct TriMeshVertex {
@@ -21,7 +23,7 @@ impl TriMeshCPU {
 
 pub struct TriMesh {
   indx_len: u32,
-  dset: AdOwnedDSet,
+  dset: AdDescriptorSet,
 }
 
 pub struct TriMeshRenderer {

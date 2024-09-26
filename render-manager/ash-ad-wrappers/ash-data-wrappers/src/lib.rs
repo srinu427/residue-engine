@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use ash_context::{ash::vk, AdAshDevice};
+use ash_context::{ash::vk, getset, AdAshDevice};
 use ash_queue_wrappers::AdCommandBuffer;
 use ash_sync_wrappers::AdFence;
 use ash_context::gpu_allocator::{
@@ -8,9 +8,12 @@ use ash_context::gpu_allocator::{
   MemoryLocation
 };
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdAllocation {
   allocator: Arc<Mutex<Allocator>>,
+  #[getset(get = "pub")]
   inner: Option<Allocation>,
+  #[getset(get = "pub")]
   name: String
 }
 
@@ -33,10 +36,6 @@ impl AdAllocation {
       })
       .map_err(|e| format!("at allocating buffer mem: {e}"))?;
     Ok(Self { allocator, inner: Some(altn), name: name.to_string() })
-  }
-
-  pub fn inner(&self) -> Result<&Allocation, String> {
-    self.inner.as_ref().ok_or(format!("no allocation found for {}", &self.name))
   }
 
   pub fn write_data(&mut self, offset: usize, bytes: &[u8]) -> Result<(), String> {
@@ -67,9 +66,13 @@ impl Drop for AdAllocation {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdBuffer {
+  #[getset(get_copy = "pub")]
   inner: vk::Buffer,
+  #[getset(get_copy = "pub")]
   size: vk::DeviceSize,
+  #[getset(get = "pub")]
   name: String,
   ash_device: Arc<AdAshDevice>,
   allocation: AdAllocation,
@@ -98,7 +101,11 @@ impl AdBuffer {
       )?;
       ash_device
         .inner()
-        .bind_buffer_memory(buffer, allocation.inner()?.memory(), allocation.inner()?.offset())
+        .bind_buffer_memory(
+          buffer,
+          allocation.inner().as_ref().ok_or("no allocation".to_string())?.memory(),
+          allocation.inner().as_ref().ok_or("no allocation".to_string())?.offset(),
+        )
         .map_err(|e| format!("at buffer mem bind: {e}"))?;
       Ok(Self {
         inner: buffer,
@@ -118,7 +125,7 @@ impl AdBuffer {
     flags: vk::BufferCreateFlags,
     usage: vk::BufferUsageFlags,
     struct_slice: &[T],
-    cmd_buffer: &AdCommandBuffer
+    cmd_buffer: &AdCommandBuffer,
   ) -> Result<AdBuffer, String> {
     let data = Self::get_byte_slice(struct_slice);
     let mut stage_buffer = Self::new(
@@ -157,18 +164,6 @@ impl AdBuffer {
     Ok(buffer)
   }
 
-  pub fn size(&self) -> vk::DeviceSize {
-    self.size
-  }
-
-  pub fn name(&self) -> &str {
-    &self.name
-  }
-
-  pub fn inner(&self) -> vk::Buffer {
-    self.inner
-  }
-
   pub fn write_data<T>(&mut self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
     let data = Self::get_byte_slice(struct_slice);
     if offset + data.len() > self.size as usize {
@@ -187,7 +182,7 @@ impl AdBuffer {
   ) {
     unsafe {
       cmd_buffer
-        .get_ash_device()
+        .ash_device()
         .inner()
         .cmd_copy_buffer(cmd_buffer.inner(), src_buffer.inner(), dst_buffer.inner(), regions);
     }
@@ -211,14 +206,18 @@ impl Drop for AdBuffer {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdImage2D {
+  #[getset(get_copy = "pub")]
   inner: vk::Image,
+  #[getset(get_copy = "pub")]
   format: vk::Format,
+  #[getset(get_copy = "pub")]
   resolution: vk::Extent2D,
+  #[getset(get = "pub")]
   name: String,
   ash_device: Arc<AdAshDevice>,
-  allocator: Arc<Mutex<Allocator>>,
-  allocation: Option<Allocation>,
+  allocation: AdAllocation,
 }
 
 impl AdImage2D {
@@ -228,8 +227,7 @@ impl AdImage2D {
     name: &str,
     resolution: vk::Extent2D,
     format: vk::Format,
-    allocator: Arc<Mutex<Allocator>>,
-    allocation: Option<Allocation>
+    allocation: AdAllocation
   ) -> Self {
     Self {
       ash_device,
@@ -237,25 +235,8 @@ impl AdImage2D {
       name: name.to_string(),
       resolution,
       format,
-      allocator,
-      allocation
+      allocation,
     }
-  }
-
-  pub fn name(&self) -> &str {
-    &self.name
-  }
-
-  pub fn inner(&self) -> vk::Image {
-    self.inner
-  }
-
-  pub fn resolution(&self) -> vk::Extent2D {
-    self.resolution
-  }
-
-  pub fn format(&self) -> vk::Format {
-    self.format
   }
 
   pub fn full_range_offset_3d(&self) -> [vk::Offset3D; 2] {
@@ -291,10 +272,7 @@ impl AdImage2D {
       self.ash_device.inner().create_image_view(&view_create_info, None)
         .map_err(|e| format!("at creating vk image view: {e}"))?
     };
-    Ok(AdImageView {
-      ash_device: self.ash_device.clone(),
-      inner: image_view,
-    })
+    Ok(AdImageView { ash_device: self.ash_device.clone(), inner: image_view, })
   }
 }
 
@@ -303,22 +281,14 @@ impl Drop for AdImage2D {
     unsafe {
       self.ash_device.inner().destroy_image(self.inner, None);
     }
-    let _ = self.allocator
-      .lock()
-      .map(|mut altr| self.allocation.take().map(|altn| altr.free(altn)))
-      .inspect_err(|e| eprintln!("at getting allocator lock while image destroy: {e}"));
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdImageView {
   ash_device: Arc<AdAshDevice>,
+  #[getset(get_copy = "pub")]
   inner: vk::ImageView,
-}
-
-impl AdImageView {
-  pub fn inner(&self) -> vk::ImageView {
-    self.inner
-  }
 }
 
 impl Drop for AdImageView {
@@ -362,9 +332,12 @@ impl AdDescriptorBinding {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdDescriptorSetLayout {
   ash_device: Arc<AdAshDevice>,
+  #[getset(get_copy = "pub")]
   inner: vk::DescriptorSetLayout,
+  #[getset(get = "pub")]
   empty_bindings: Vec<(vk::ShaderStageFlags, AdDescriptorBinding)>,
 }
 
@@ -398,10 +371,6 @@ impl AdDescriptorSetLayout {
       Ok(AdDescriptorSetLayout{ ash_device, inner: descriptor_set_layout, empty_bindings })
     }
   }
-
-  pub fn get_bindings_info(&self) -> &[(vk::ShaderStageFlags, AdDescriptorBinding)] {
-    &self.empty_bindings
-  }
 }
 
 impl Drop for AdDescriptorSetLayout {
@@ -412,9 +381,11 @@ impl Drop for AdDescriptorSetLayout {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdDescriptorPool {
   ash_device: Arc<AdAshDevice>,
   inner: vk::DescriptorPool,
+  #[getset(get_copy = "pub")]
   free_supported: bool,
 }
 
@@ -440,10 +411,6 @@ impl AdDescriptorPool {
         free_supported: flags.contains(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
       })
     }
-  }
-
-  pub fn can_free_sets(&self) -> bool {
-    self.free_supported
   }
 }
 
@@ -485,7 +452,7 @@ impl AdDescriptorSet {
               Self {
                 inner: *vk_dset,
                 bindings: desc_layouts[i]
-                  .get_bindings_info()
+                  .empty_bindings()
                   .iter()
                   .map(|x| x.1.clone())
                   .collect::<Vec<_>>(),

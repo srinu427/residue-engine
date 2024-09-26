@@ -2,13 +2,17 @@ use std::{collections::HashMap, ffi::c_char, sync::Arc};
 
 pub use ash;
 pub use gpu_allocator;
+pub use getset;
 use ash::vk;
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 
 mod init_helpers;
 
+#[derive(getset::Getters)]
 pub struct AdAshInstance {
+  #[getset(get = "pub")]
   inner: ash::Instance,
+  #[getset(get = "pub")]
   ash_entry: ash::Entry,
 }
 
@@ -19,14 +23,6 @@ impl AdAshInstance {
       let ash_instance = init_helpers::init_instance(&ash_entry, vec![], vec![])?;
       Ok(Self { inner: ash_instance, ash_entry })
     }
-  }
-
-  pub fn inner(&self) -> &ash::Instance {
-    &self.inner
-  }
-
-  pub fn get_ash_entry(&self) -> &ash::Entry {
-    &self.ash_entry
   }
 }
 
@@ -44,10 +40,14 @@ pub enum GPUQueueType {
   Present,
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdAshDevice {
   // queue_family_info: HashMap<GPUQueueType, (u32, u32)>, // Queue Family idx and count
+  #[getset(get = "pub")]
   inner: ash::Device,
+  #[getset(get_copy = "pub")]
   gpu: vk::PhysicalDevice,
+  #[getset(get = "pub")]
   ash_instance: Arc<AdAshInstance>, // To avoid destroying instance till device is destroyed
 }
 
@@ -80,18 +80,6 @@ impl AdAshDevice {
     };
 
     Ok(Self { inner: vk_device, gpu, ash_instance })
-  }
-
-  pub fn inner(&self) -> &ash::Device {
-    &self.inner
-  }
-
-  pub fn gpu(&self) -> vk::PhysicalDevice {
-    self.gpu
-  }
-
-  pub fn get_ash_instance(&self) -> &AdAshInstance {
-    &self.ash_instance
   }
 
   pub fn create_allocator(&self) -> Result<Allocator, String> {

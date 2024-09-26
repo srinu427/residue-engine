@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use ash_context::{ash::vk, AdAshDevice};
+use ash_context::{ash::vk, getset, AdAshDevice};
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdSemaphore {
   ash_device: Arc<AdAshDevice>,
+  #[getset(get_copy = "pub")]
   inner: vk::Semaphore,
 }
 
@@ -20,10 +22,6 @@ impl AdSemaphore {
         .map(|vk_semaphore| { Self { ash_device, inner: vk_semaphore } })
     }
   }
-
-  pub fn inner(&self) -> vk::Semaphore {
-    self.inner
-  }
 }
 
 impl Drop for AdSemaphore {
@@ -37,8 +35,10 @@ impl Drop for AdSemaphore {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdFence {
   ash_device: Arc<AdAshDevice>,
+  #[getset(get_copy = "pub")]
   inner: vk::Fence,
 }
 
@@ -54,10 +54,6 @@ impl AdFence {
         .map_err(|e| format!("at create vk semaphore: {e}"))
         .map(|vk_fence| { Self { ash_device, inner: vk_fence } })
     }
-  }
-
-  pub fn inner(&self) -> vk::Fence {
-    self.inner
   }
 
   pub fn wait(&self, timeout: u64) -> Result<(), String> {

@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
-use ash_context::{ash::vk, AdAshDevice};
+use ash_context::{ash::vk, AdAshDevice, getset};
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdQueue {
   ash_device: Arc<AdAshDevice>,
-  qf_idx: u32,
-  q_idx: u32,
+  #[getset(get_copy = "pub")]
+  family_index: u32,
+  #[getset(get_copy = "pub")]
+  queue_index: u32,
+  #[getset(get_copy = "pub")]
   inner: vk::Queue,
 }
 
@@ -17,22 +21,10 @@ impl AdQueue {
     };
     Self {
       ash_device,
-      qf_idx,
-      q_idx,
+      family_index: qf_idx,
+      queue_index: q_idx,
       inner: vk_queue
     }
-  }
-
-  pub fn inner(&self) -> vk::Queue {
-    self.inner
-  }
-
-  pub fn family_idx(&self) -> u32 {
-    self.qf_idx
-  }
-
-  pub fn queue_idx(&self) -> u32 {
-    self.q_idx
   }
 
   pub fn create_ad_command_pool(
@@ -44,7 +36,7 @@ impl AdQueue {
         .ash_device
         .inner()
         .create_command_pool(
-          &vk::CommandPoolCreateInfo::default().flags(flags).queue_family_index(self.qf_idx),
+          &vk::CommandPoolCreateInfo::default().flags(flags).queue_family_index(self.family_index),
           None,
         )
         .map_err(|e| format!("at vk cmd pool create: {e}"))?;
@@ -52,7 +44,7 @@ impl AdQueue {
         ash_device: self.ash_device.clone(),
         inner: cmd_pool,
         queue: self.inner,
-        qf_idx: self.qf_idx,
+        queue_family_index: self.family_index,
       })
     }
   }
@@ -82,22 +74,17 @@ impl AdQueue {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdCommandPool {
   ash_device: Arc<AdAshDevice>,
+  #[getset(get_copy = "pub")]
   inner: vk::CommandPool,
   queue: vk::Queue,
-  qf_idx: u32,
+  #[getset(get_copy = "pub")]
+  queue_family_index: u32,
 }
 
 impl AdCommandPool {
-  pub fn inner(&self) -> vk::CommandPool {
-    self.inner
-  }
-
-  pub fn queue_family_idx(&self) -> u32 {
-    self.qf_idx
-  }
-
   pub fn allocate_command_buffers(
     &self,
     level: vk::CommandBufferLevel,
@@ -120,7 +107,7 @@ impl AdCommandPool {
           pool: self.inner,
           inner: x,
           queue: self.queue,
-          qf_idx: self.qf_idx,
+          queue_family_index: self.queue_family_index,
         })
         .collect::<Vec<_>>()
     };
@@ -139,27 +126,19 @@ impl Drop for AdCommandPool {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdCommandBuffer {
+  #[getset(get = "pub")]
   ash_device: Arc<AdAshDevice>,
   pool: vk::CommandPool,
+  #[getset(get_copy = "pub")]
   inner: vk::CommandBuffer,
   queue: vk::Queue,
-  qf_idx: u32,
+  #[getset(get_copy = "pub")]
+  queue_family_index: u32,
 }
 
 impl AdCommandBuffer {
-  pub fn get_ash_device(&self) -> &AdAshDevice{
-    &self.ash_device
-  }
-
-  pub fn inner(&self) -> vk::CommandBuffer {
-    self.inner
-  }
-
-  pub fn queue_family_idx(&self) -> u32 {
-    self.qf_idx
-  }
-
   pub fn begin(&self, flags: vk::CommandBufferUsageFlags) -> Result<(), String> {
     unsafe {
       self

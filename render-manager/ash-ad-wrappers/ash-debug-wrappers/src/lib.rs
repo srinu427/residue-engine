@@ -11,7 +11,7 @@ impl AdDebugInstance {
   pub fn new(ash_instance: Arc<AdAshInstance>) -> Self {
     Self {
       dbg_utils_instance: ext::debug_utils::Instance::new(
-        ash_instance.get_ash_entry(),
+        ash_instance.ash_entry(),
         ash_instance.inner(),
       ),
       ash_instance

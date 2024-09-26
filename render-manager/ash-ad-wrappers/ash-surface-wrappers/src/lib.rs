@@ -1,11 +1,13 @@
 use std::{collections::HashSet, sync::Arc};
 
-use ash_context::{ash::{khr, vk}, AdAshDevice, AdAshInstance};
+use ash_context::{ash::{khr, vk}, getset, AdAshDevice, AdAshInstance};
 use ash_queue_wrappers::{AdCommandBuffer, AdQueue};
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdSurfaceInstance {
+  #[getset(get = "pub")]
   inner: khr::surface::Instance,
   ash_instance: Arc<AdAshInstance>, // To stop deleting ash instance befor deleting this
 }
@@ -14,19 +16,17 @@ impl AdSurfaceInstance {
   pub fn new(ash_instance: Arc<AdAshInstance>) -> Self {
     Self {
       inner: khr::surface::Instance::new(
-        ash_instance.get_ash_entry(),
+        ash_instance.ash_entry(),
         ash_instance.inner(),
       ),
       ash_instance
     }
   }
-
-  pub fn inner(&self) -> &khr::surface::Instance {
-    &self.inner
-  }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdSurface {
+  #[getset(get_copy = "pub")]
   inner: vk::SurfaceKHR,
   surface_instance: Arc<AdSurfaceInstance>,
 }
@@ -38,7 +38,7 @@ impl AdSurface {
   ) -> Result<Self, String> {
     unsafe {
       let vk_surface = ash_window::create_surface(
-        surface_instance.ash_instance.get_ash_entry(),
+        surface_instance.ash_instance.ash_entry(),
         surface_instance.ash_instance.inner(),
         window.display_handle().map_err(|_| "unsupported window".to_string())?.as_raw(),
         window.window_handle().map_err(|_| "unsupported window".to_string())?.as_raw(),
@@ -47,10 +47,6 @@ impl AdSurface {
       .map_err(|e| format!("at surface create: {e}"))?;
       Ok(Self { surface_instance, inner: vk_surface })
     }
-  }
-
-  pub fn inner(&self) -> vk::SurfaceKHR {
-    self.inner
   }
 
   pub fn get_gpu_formats(
@@ -131,26 +127,31 @@ pub struct AdSwapchainDevice {
 impl AdSwapchainDevice {
   pub fn new(ash_device: Arc<AdAshDevice>) -> Self {
     let swapchain_device = khr::swapchain::Device::new(
-      ash_device.get_ash_instance().inner(),
+      ash_device.ash_instance().inner(),
       ash_device.inner()
     );
     Self { inner: swapchain_device, ash_device }
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdSwapchain {
   swapchain_device: Arc<AdSwapchainDevice>,
   surface: Arc<AdSurface>,
   present_queue: Arc<AdQueue>,
+  #[getset(get_copy = "pub")]
   inner: vk::SwapchainKHR,
   images: Vec<vk::Image>,
   image_count: u32,
   color_space: vk::ColorSpaceKHR,
+  #[getset(get_copy = "pub")]
   format: vk::Format,
+  #[getset(get_copy = "pub")]
   resolution: vk::Extent2D,
   usage: vk::ImageUsageFlags,
   pre_transform: vk::SurfaceTransformFlagsKHR,
   present_mode: vk::PresentModeKHR,
+  #[getset(get_copy = "pub")]
   initialized: bool,
 }
 
@@ -210,18 +211,6 @@ impl AdSwapchain {
     }
   }
 
-  pub fn inner(&self) -> vk::SwapchainKHR {
-    self.inner
-  }
-
-  pub fn resolution(&self) -> vk::Extent2D {
-    self.resolution
-  }
-
-  pub fn format(&self) -> vk::Format {
-    self.format
-  }
-
   pub fn get_image(&self, idx: usize) -> vk::Image {
     self.images[idx % self.images.len()]
   }
@@ -231,10 +220,6 @@ impl AdSwapchain {
       vk::Offset3D::default(),
       vk::Offset3D::default().x(self.resolution.width as i32).y(self.resolution.height as i32).z(1),
     ]
-  }
-
-  pub fn is_initialized(&self) -> bool {
-    self.initialized
   }
 
   pub fn set_initialized(&mut self) {
@@ -345,8 +330,8 @@ impl AdSwapchain {
                   .level_count(1)
                   .base_mip_level(0),
               )
-              .src_queue_family_index(cmd_buffer.queue_family_idx())
-              .dst_queue_family_index(cmd_buffer.queue_family_idx())
+              .src_queue_family_index(cmd_buffer.queue_family_index())
+              .dst_queue_family_index(cmd_buffer.queue_family_index())
               .src_access_mask(vk::AccessFlags::NONE)
               .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
               .old_layout(vk::ImageLayout::UNDEFINED)

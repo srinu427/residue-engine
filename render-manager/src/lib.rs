@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use ash_ad_wrappers::{
-  ash_context::{ash::vk, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshInstance},
-  ash_data_wrappers::{AdImage2D, AdImageView},
+  ash_context::{ash::vk, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshInstance, GPUQueueType},
+  ash_data_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdImage2D, AdImageView},
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool},
-  ash_surface_wrappers::AdSwapchain,
+  ash_surface_wrappers::{AdSurface, AdSwapchain},
   ash_sync_wrappers::{AdFence, AdSemaphore}
 };
 
@@ -17,7 +17,7 @@ struct Camera3D {
 }
 
 pub struct RenderManager {
-  camera_dset: AdOwnedDSet,
+  camera_dset: AdDescriptorSet,
   camera_dset_pool: AdDescriptorPool,
   camera_dset_layout: AdDescriptorSetLayout,
   camera: Camera3D,
