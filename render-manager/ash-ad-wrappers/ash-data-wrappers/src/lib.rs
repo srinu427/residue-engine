@@ -149,10 +149,9 @@ impl AdBuffer {
       usage | vk::BufferUsageFlags::TRANSFER_DST,
     )?;
     cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
-    Self::add_copy_buffer_to_buffer_cmd(
-      &cmd_buffer,
-      &stage_buffer,
-      &buffer,
+    cmd_buffer.copy_buffer_to_buffer_cmd(
+      stage_buffer.inner(),
+      buffer.inner(),
       &[vk::BufferCopy{ src_offset: 0, dst_offset: 0, size: data.len() as u64 }]
     );
     cmd_buffer.end()?;
@@ -172,20 +171,6 @@ impl AdBuffer {
     self
       .allocation
       .write_data(offset, data)
-  }
-
-  pub fn add_copy_buffer_to_buffer_cmd(
-    cmd_buffer :&AdCommandBuffer,
-    src_buffer: &AdBuffer,
-    dst_buffer: &AdBuffer,
-    regions: &[vk::BufferCopy]
-  ) {
-    unsafe {
-      cmd_buffer
-        .ash_device()
-        .inner()
-        .cmd_copy_buffer(cmd_buffer.inner(), src_buffer.inner(), dst_buffer.inner(), regions);
-    }
   }
 
   pub fn get_byte_slice<T>(struct_slice: &[T]) -> &[u8] {

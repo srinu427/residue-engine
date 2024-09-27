@@ -8,5 +8,6 @@ ash-context = {path = "ash-context"}
 ash-data-wrappers = {path = "ash-data-wrappers"}
 ash-debug-wrappers = {path = "ash-debug-wrappers"}
 ash-queue-wrappers = {path = "ash-queue-wrappers"}
+ash-render-wrappers = {path = "ash-render-wrappers"}
 ash-surface-wrappers = {path = "ash-surface-wrappers"}
 ash-sync-wrappers = {path = "ash-sync-wrappers"}

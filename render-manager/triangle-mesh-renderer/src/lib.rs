@@ -2,8 +2,8 @@ use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
 use ash_ad_wrappers::{
   ash_context::{ash::vk, gpu_allocator::vulkan::Allocator, AdAshDevice, GPUQueueType},
-  ash_data_wrappers::{AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout},
-  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool}
+  ash_data_wrappers::{AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout},
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue}, ash_render_wrappers::{AdPipeline, AdRenderPass}
 };
 
 #[repr(C)]
@@ -34,32 +34,32 @@ pub struct TriMeshRenderer {
   pub render_pass: AdRenderPass,
   vert_dset_layout: AdDescriptorSetLayout,
   dset_pool: AdDescriptorPool,
-  vk_context: Arc<AdAshDevice>,
+  ash_device: Arc<AdAshDevice>,
 }
 
 impl TriMeshRenderer {
-  pub fn new(vk_context: Arc<AdAshDevice>, cam_dset_layout: &AdDescriptorSetLayout) -> Result<Self, String> {
-    let mesh_allocator = Arc::new(Mutex::new(vk_context.create_allocator()?));
-    let cmd_pool = vk_context.queues[&GPUQueueType::Transfer]
+  pub fn new(
+    ash_device: Arc<AdAshDevice>,
+    transfer_queue: Arc<AdQueue>,
+    cam_dset_layout: &AdDescriptorSetLayout
+  ) -> Result<Self, String> {
+    let mesh_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
+    let cmd_pool = ash_device.queues[&GPUQueueType::Transfer]
       .create_ad_command_pool(vk::CommandPoolCreateFlags::TRANSIENT)?;
-    let vert_dset_layout = vk_context.create_ad_descriptor_set_layout(&[
-      vk::DescriptorSetLayoutBinding::default()
-        .stage_flags(vk::ShaderStageFlags::VERTEX)
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-        .descriptor_count(1),
-      vk::DescriptorSetLayoutBinding::default()
-        .stage_flags(vk::ShaderStageFlags::VERTEX)
-        .binding(1)
-        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-        .descriptor_count(1),
-    ])?;
-    let dset_pool = vk_context.create_ad_descriptor_pool(
+    let vert_dset_layout = AdDescriptorSetLayout::new(
+      ash_device.clone(),
+      &[
+        (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
+        (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
+      ]
+    )?;
+    let dset_pool = AdDescriptorPool::new(
+      ash_device.clone(),
       vk::DescriptorPoolCreateFlags::default(),
       2000,
       &[vk::DescriptorPoolSize { descriptor_count: 2000, ty: vk::DescriptorType::STORAGE_BUFFER }],
     )?;
-    let render_pass = vk_context
+    let render_pass = ash_device
       .create_ad_render_pass_builder(vk::RenderPassCreateFlags::default())
       .add_attachment(
         vk::AttachmentDescription::default()
@@ -96,23 +96,20 @@ impl TriMeshRenderer {
       )
       .build()?;
 
-    let mut vert_shader = vk_context
-      .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.vert.spv"))?;
-    let mut frag_shader = vk_context
-      .create_ad_shader_from_spv_file(&PathBuf::from("render-manager/shaders/triangle.frag.spv"))?;
     let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
       .cull_mode(vk::CullModeFlags::NONE)
       .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
       .polygon_mode(vk::PolygonMode::FILL)
       .line_width(1.0);
 
-    let pipeline = render_pass.create_ad_g_pipeline(
+    let pipeline = AdPipeline::new(
+      render_pass.clone(),
       0,
-      &[&vert_dset_layout, cam_dset_layout],
       HashMap::from([
-        (vk::ShaderStageFlags::VERTEX, &vert_shader),
-        (vk::ShaderStageFlags::FRAGMENT, &frag_shader),
+        (vk::ShaderStageFlags::VERTEX, PathBuf::from("render-manager/shaders/triangle.vert.spv")),
+        (vk::ShaderStageFlags::FRAGMENT, PathBuf::from("render-manager/shaders/triangle.frag.spv")),
       ]),
+      &[vert_dset_layout, cam_dset_layout],
       triangle_rasterizer_info,
       &vk::PipelineColorBlendStateCreateInfo::default().attachments(&[
         vk::PipelineColorBlendAttachmentState::default()
@@ -120,18 +117,15 @@ impl TriMeshRenderer {
           .blend_enable(false),
       ]),
     )?;
-
-    vert_shader.manual_destroy();
-    frag_shader.manual_destroy();
     
-    Ok(Self { meshes: vec![], mesh_allocator, render_pass, pipeline, vert_dset_layout, dset_pool, vk_context, cmd_pool })
+    Ok(Self { meshes: vec![], mesh_allocator, render_pass, pipeline, vert_dset_layout, dset_pool, ash_device, cmd_pool })
   }
 
   pub fn add_mesh(&mut self, name: &str, cpu_mesh: &TriMeshCPU) -> Result<(), String>{
     let tmp_cmd_buffer =
       self.cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let vb_size = std::mem::size_of::<TriMeshVertex>() * cpu_mesh.verts.len();
-    let vert_buffer = self.vk_context.create_ad_buffer_from_data(
+    let vert_buffer = self.ash_device.create_ad_buffer_from_data(
       self.mesh_allocator.clone(),
       ash_wrappers::MemoryLocation::GpuOnly,
       name,
@@ -145,7 +139,7 @@ impl TriMeshRenderer {
       self.cmd_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let indices = cpu_mesh.triangles.iter().flatten().cloned().collect::<Vec<_>>();
     let ib_size = std::mem::size_of::<u32>() * indices.len();
-    let indx_buffer = self.vk_context.create_ad_buffer_from_data(
+    let indx_buffer = self.ash_device.create_ad_buffer_from_data(
       self.mesh_allocator.clone(),
       MemoryLocation::GpuOnly,
       name,

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use ash_context::{ash::vk, AdAshDevice, getset};
+use ash_context::{ash::{self, vk}, getset, AdAshDevice};
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdQueue {
+  #[getset(get = "pub")]
   ash_device: Arc<AdAshDevice>,
   #[getset(get_copy = "pub")]
   family_index: u32,
@@ -24,28 +25,6 @@ impl AdQueue {
       family_index: qf_idx,
       queue_index: q_idx,
       inner: vk_queue
-    }
-  }
-
-  pub fn create_ad_command_pool(
-    &self,
-    flags: vk::CommandPoolCreateFlags,
-  ) -> Result<AdCommandPool, String> {
-    unsafe {
-      let cmd_pool = self
-        .ash_device
-        .inner()
-        .create_command_pool(
-          &vk::CommandPoolCreateInfo::default().flags(flags).queue_family_index(self.family_index),
-          None,
-        )
-        .map_err(|e| format!("at vk cmd pool create: {e}"))?;
-      Ok(AdCommandPool {
-        ash_device: self.ash_device.clone(),
-        inner: cmd_pool,
-        queue: self.inner,
-        queue_family_index: self.family_index,
-      })
     }
   }
 
@@ -76,42 +55,30 @@ impl AdQueue {
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdCommandPool {
-  ash_device: Arc<AdAshDevice>,
   #[getset(get_copy = "pub")]
   inner: vk::CommandPool,
-  queue: vk::Queue,
-  #[getset(get_copy = "pub")]
-  queue_family_index: u32,
+  #[getset(get = "pub")]
+  queue: Arc<AdQueue>,
 }
 
 impl AdCommandPool {
-  pub fn allocate_command_buffers(
-    &self,
-    level: vk::CommandBufferLevel,
-    count: u32,
-  ) -> Result<Vec<AdCommandBuffer>, String> {
-    let cmd_buffers = unsafe {
-      self
-        .ash_device
+  pub fn new(
+    queue: Arc<AdQueue>,
+    flags: vk::CommandPoolCreateFlags
+  ) -> Result<Self, String> {
+    unsafe {
+      let cmd_pool = queue
+        .ash_device()
         .inner()
-        .allocate_command_buffers(
-          &vk::CommandBufferAllocateInfo::default()
-            .command_pool(self.inner)
-            .level(level)
-            .command_buffer_count(count),
+        .create_command_pool(
+          &vk::CommandPoolCreateInfo::default()
+            .flags(flags)
+            .queue_family_index(queue.family_index()),
+          None,
         )
-        .map_err(|e| format!("at creating command buffer: {e}"))?
-        .iter()
-        .map(|&x| AdCommandBuffer {
-          ash_device: self.ash_device.clone(),
-          pool: self.inner,
-          inner: x,
-          queue: self.queue,
-          queue_family_index: self.queue_family_index,
-        })
-        .collect::<Vec<_>>()
-    };
-    Ok(cmd_buffers)
+        .map_err(|e| format!("at vk cmd pool create: {e}"))?;
+      Ok(Self { inner: cmd_pool, queue })
+    }
   }
 }
 
@@ -119,7 +86,8 @@ impl Drop for AdCommandPool {
   fn drop(&mut self) {
     unsafe {
       self
-        .ash_device
+        .queue
+        .ash_device()
         .inner()
         .destroy_command_pool(self.inner, None);
     }
@@ -129,21 +97,47 @@ impl Drop for AdCommandPool {
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdCommandBuffer {
   #[getset(get = "pub")]
-  ash_device: Arc<AdAshDevice>,
-  pool: vk::CommandPool,
+  cmd_pool: Arc<AdCommandPool>,
   #[getset(get_copy = "pub")]
   inner: vk::CommandBuffer,
-  queue: vk::Queue,
-  #[getset(get_copy = "pub")]
-  queue_family_index: u32,
 }
 
 impl AdCommandBuffer {
+  pub fn new(
+    cmd_pool: Arc<AdCommandPool>,
+    level: vk::CommandBufferLevel,
+    count: u32,
+  ) -> Result<Vec<Self>, String> {
+    let cmd_buffers = unsafe {
+      cmd_pool
+        .queue()
+        .ash_device()
+        .inner()
+        .allocate_command_buffers(
+          &vk::CommandBufferAllocateInfo::default()
+            .command_pool(cmd_pool.inner())
+            .level(level)
+            .command_buffer_count(count),
+        )
+        .map_err(|e| format!("at creating command buffer: {e}"))?
+        .iter()
+        .map(|&x| AdCommandBuffer {
+          cmd_pool: cmd_pool.clone(),
+          inner: x,
+        })
+        .collect::<Vec<_>>()
+    };
+    Ok(cmd_buffers)
+  }
+
+  fn get_ash_device(&self) -> &ash::Device {
+    self.cmd_pool.queue().ash_device().inner()
+  }
+
   pub fn begin(&self, flags: vk::CommandBufferUsageFlags) -> Result<(), String> {
     unsafe {
       self
-        .ash_device
-        .inner()
+        .get_ash_device()
         .begin_command_buffer(self.inner, &vk::CommandBufferBeginInfo::default().flags(flags))
         .map_err(|e| format!("at cmd buffer begin: {e}"))
     }
@@ -151,7 +145,10 @@ impl AdCommandBuffer {
 
   pub fn end(&self) -> Result<(), String> {
     unsafe {
-      self.ash_device.inner().end_command_buffer(self.inner).map_err(|e| format!("at cmd buffer end: {e}"))
+      self
+        .get_ash_device()
+        .end_command_buffer(self.inner)
+        .map_err(|e| format!("at cmd buffer end: {e}"))
     }
   }
 
@@ -163,10 +160,9 @@ impl AdCommandBuffer {
   ) -> Result<(), String> {
     unsafe {
       self
-        .ash_device
-        .inner()
+        .get_ash_device()
         .queue_submit(
-          self.queue,
+          self.cmd_pool.queue().inner(),
           &[
             vk::SubmitInfo::default()
               .command_buffers(&[self.inner])
@@ -183,8 +179,7 @@ impl AdCommandBuffer {
   pub fn reset(&self) -> Result<(), String> {
     unsafe {
       self
-        .ash_device
-        .inner()
+        .get_ash_device()
         .reset_command_buffer(self.inner, vk::CommandBufferResetFlags::default())
         .map_err(|e| format!("at cmd buffer reset: {e}"))
     }
@@ -192,45 +187,38 @@ impl AdCommandBuffer {
 
   pub fn begin_render_pass(
     &self,
-    render_pass_begin_info: vk::RenderPassBeginInfo,
+    render_pass: vk::RenderPass,
+    framebuffer: vk::Framebuffer,
+    render_area: vk::Rect2D,
+    clear_values: &[vk::ClearValue],
     subpass_contents: vk::SubpassContents,
   ) {
     unsafe {
-      self.ash_device.inner().cmd_begin_render_pass(self.inner, &render_pass_begin_info, subpass_contents);
+      self
+        .get_ash_device()
+        .cmd_begin_render_pass(
+          self.inner,
+          &vk::RenderPassBeginInfo::default()
+            .render_pass(render_pass)
+            .framebuffer(framebuffer)
+            .render_area(render_area)
+            .clear_values(clear_values),
+          subpass_contents
+        );
     }
   }
 
   pub fn end_render_pass(&self) {
     unsafe {
-      self.ash_device.inner().cmd_end_render_pass(self.inner);
+      self.get_ash_device().cmd_end_render_pass(self.inner);
     }
   }
 
   pub fn bind_pipeline(&self, pipeline_bind_point: vk::PipelineBindPoint, pipeline: vk::Pipeline) {
     unsafe {
-      self.ash_device.inner().cmd_bind_pipeline(self.inner, pipeline_bind_point, pipeline);
-    }
-  }
-
-  pub fn bind_vertex_buffer(
-    &self,
-    binding_count: u32,
-    buffers: &[vk::Buffer],
-    offsets: &[vk::DeviceSize],
-  ) {
-    unsafe {
-      self.ash_device.inner().cmd_bind_vertex_buffers(self.inner, binding_count, buffers, offsets);
-    }
-  }
-
-  pub fn bind_index_buffer(
-    &self,
-    buffer: vk::Buffer,
-    offset: vk::DeviceSize,
-    index_type: vk::IndexType,
-  ) {
-    unsafe {
-      self.ash_device.inner().cmd_bind_index_buffer(self.inner, buffer, offset, index_type);
+      self
+        .get_ash_device()
+        .cmd_bind_pipeline(self.inner, pipeline_bind_point, pipeline);
     }
   }
 
@@ -240,27 +228,35 @@ impl AdCommandBuffer {
     layout: vk::PipelineLayout,
     descriptor_sets: &[vk::DescriptorSet]
   ) {
-    // let vk_descriptor_sets = descriptor_sets.iter().map(|x| x.inner).collect::<Vec<_>>();
     unsafe {
-      self.ash_device.inner().cmd_bind_descriptor_sets(self.inner, pipeline_bind_point, layout, 0, &descriptor_sets, &[])
+      self
+        .get_ash_device()
+        .cmd_bind_descriptor_sets(
+          self.inner,
+          pipeline_bind_point,
+          layout,
+          0,
+          &descriptor_sets,
+          &[]
+        )
     }
   }
 
   pub fn set_view_port(&self, viewports: &[vk::Viewport]) {
     unsafe {
-      self.ash_device.inner().cmd_set_viewport(self.inner, 0, viewports);
+      self.get_ash_device().cmd_set_viewport(self.inner, 0, viewports);
     }
   }
 
   pub fn set_scissor(&self, scissors: &[vk::Rect2D]) {
     unsafe {
-      self.ash_device.inner().cmd_set_scissor(self.inner, 0, scissors);
+      self.get_ash_device().cmd_set_scissor(self.inner, 0, scissors);
     }
   }
 
   pub fn draw(&self, vert_count: u32) {
     unsafe {
-      self.ash_device.inner().cmd_draw(self.inner, vert_count, 1, 0, 0);
+      self.cmd_pool.queue().ash_device().inner().cmd_draw(self.inner, vert_count, 1, 0, 0);
     }
   }
 
@@ -274,7 +270,7 @@ impl AdCommandBuffer {
     image_memory_barriers: &[vk::ImageMemoryBarrier],
   ) {
     unsafe {
-      self.ash_device.inner().cmd_pipeline_barrier(
+      self.get_ash_device().cmd_pipeline_barrier(
         self.inner,
         src_stage,
         dst_stage,
@@ -282,6 +278,37 @@ impl AdCommandBuffer {
         memory_barriers,
         buffer_memory_barriers,
         image_memory_barriers,
+      );
+    }
+  }
+
+  pub fn copy_buffer_to_buffer_cmd(
+    &self,
+    src_buffer: vk::Buffer,
+    dst_buffer: vk::Buffer,
+    regions: &[vk::BufferCopy]
+  ) {
+    unsafe {
+      self
+        .get_ash_device()
+        .cmd_copy_buffer(self.inner, src_buffer, dst_buffer, regions);
+    }
+  }
+
+  pub fn copy_buffer_to_image(
+    &self,
+    src_buffer: vk::Buffer,
+    dst_image: vk::Image,
+    dst_image_layout: vk::ImageLayout,
+    regions: &[vk::BufferImageCopy],
+  ) {
+    unsafe {
+      self.get_ash_device().cmd_copy_buffer_to_image(
+        self.inner,
+        src_buffer,
+        dst_image,
+        dst_image_layout,
+        regions,
       );
     }
   }
@@ -296,7 +323,7 @@ impl AdCommandBuffer {
     filter: vk::Filter,
   ) {
     unsafe {
-      self.ash_device.inner().cmd_blit_image(
+      self.get_ash_device().cmd_blit_image(
         self.inner,
         src_image,
         src_image_layout,
@@ -307,30 +334,14 @@ impl AdCommandBuffer {
       );
     }
   }
-
-  pub fn copy_buffer_to_image(
-    &self,
-    src_buffer: vk::Buffer,
-    dst_image: vk::Image,
-    dst_image_layout: vk::ImageLayout,
-    regions: &[vk::BufferImageCopy],
-  ) {
-    unsafe {
-      self.ash_device.inner().cmd_copy_buffer_to_image(
-        self.inner,
-        src_buffer,
-        dst_image,
-        dst_image_layout,
-        regions,
-      );
-    }
-  }
 }
 
 impl Drop for AdCommandBuffer {
   fn drop(&mut self) {
     unsafe {
-      self.ash_device.inner().free_command_buffers(self.pool, &[self.inner]);
+      self
+        .get_ash_device()
+        .free_command_buffers(self.cmd_pool.inner(), &[self.inner]);
     }
   }
 }

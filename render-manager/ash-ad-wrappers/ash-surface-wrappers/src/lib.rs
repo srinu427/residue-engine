@@ -330,8 +330,8 @@ impl AdSwapchain {
                   .level_count(1)
                   .base_mip_level(0),
               )
-              .src_queue_family_index(cmd_buffer.queue_family_index())
-              .dst_queue_family_index(cmd_buffer.queue_family_index())
+              .src_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+              .dst_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
               .src_access_mask(vk::AccessFlags::NONE)
               .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
               .old_layout(vk::ImageLayout::UNDEFINED)
