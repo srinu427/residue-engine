@@ -75,6 +75,7 @@ pub struct AdBuffer {
   #[getset(get = "pub")]
   name: String,
   ash_device: Arc<AdAshDevice>,
+  #[getset(get = "pub")]
   allocation: AdAllocation,
 }
 
@@ -192,21 +193,23 @@ impl Drop for AdBuffer {
 }
 
 #[derive(getset::Getters, getset::CopyGetters)]
-pub struct AdImage2D {
+pub struct AdImage {
   #[getset(get_copy = "pub")]
   inner: vk::Image,
   #[getset(get_copy = "pub")]
+  itype: vk::ImageType,
+  #[getset(get_copy = "pub")]
   format: vk::Format,
   #[getset(get_copy = "pub")]
-  resolution: vk::Extent2D,
+  resolution: vk::Extent3D,
   #[getset(get = "pub")]
   name: String,
   ash_device: Arc<AdAshDevice>,
   allocation: AdAllocation,
 }
 
-impl AdImage2D {
-  pub fn new(
+impl AdImage {
+  pub fn new_2d(
     ash_device: Arc<AdAshDevice>,
     vk_image: vk::Image,
     name: &str,
@@ -217,8 +220,12 @@ impl AdImage2D {
     Self {
       ash_device,
       inner: vk_image,
+      itype: vk::ImageType::TYPE_2D,
       name: name.to_string(),
-      resolution,
+      resolution: vk::Extent3D::default()
+        .width(resolution.width)
+        .height(resolution.height)
+        .depth(1),
       format,
       allocation,
     }
@@ -230,23 +237,45 @@ impl AdImage2D {
       vk::Offset3D::default()
         .x(self.resolution.width as i32)
         .y(self.resolution.height as i32)
-        .z(1),
+        .z(self.resolution.width as i32),
     ]
   }
+}
 
-  pub fn create_view(&self, aspect_mask: vk::ImageAspectFlags) -> Result<AdImageView, String> {
+#[derive(getset::Getters, getset::CopyGetters)]
+pub struct AdImageView {
+  ash_device: Arc<AdAshDevice>,
+  #[getset(get = "pub")]
+  image: Arc<AdImage>,
+  #[getset(get_copy = "pub")]
+  view_type: vk::ImageViewType,
+  #[getset(get_copy = "pub")]
+  inner: vk::ImageView,
+}
+
+impl AdImageView {
+  pub fn create_view(
+    &self,
+    image: Arc<AdImage>,
+    view_type: vk::ImageViewType,
+    subresource_range: vk::ImageSubresourceRange,
+  ) -> Result<AdImageView, String> {
+    // Check view type support
+    if (view_type == vk::ImageViewType::TYPE_1D && image.itype() != vk::ImageType::TYPE_1D) ||
+      (view_type == vk::ImageViewType::TYPE_1D_ARRAY && image.itype() != vk::ImageType::TYPE_1D) ||
+      (view_type == vk::ImageViewType::TYPE_2D && (image.itype() != vk::ImageType::TYPE_2D || image.itype() != vk::ImageType::TYPE_3D)) ||
+      (view_type == vk::ImageViewType::TYPE_2D_ARRAY && (image.itype() != vk::ImageType::TYPE_1D || image.itype() != vk::ImageType::TYPE_3D)) ||
+      (view_type == vk::ImageViewType::CUBE && image.itype() != vk::ImageType::TYPE_2D) ||
+      (view_type == vk::ImageViewType::CUBE_ARRAY && image.itype() != vk::ImageType::TYPE_2D) ||
+      (view_type == vk::ImageViewType::TYPE_3D && image.itype() != vk::ImageType::TYPE_3D) {
+      return Err("unsupported view type".to_string());
+    }
+
     let view_create_info = vk::ImageViewCreateInfo::default()
-      .image(self.inner)
-      .format(self.format)
-      .view_type(vk::ImageViewType::TYPE_2D)
-      .subresource_range(
-        vk::ImageSubresourceRange::default()
-          .aspect_mask(aspect_mask)
-          .layer_count(1)
-          .base_array_layer(0)
-          .level_count(1)
-          .base_mip_level(0),
-      )
+      .image(image.inner())
+      .format(image.format())
+      .view_type(view_type)
+      .subresource_range(subresource_range)
       .components(vk::ComponentMapping {
         r: vk::ComponentSwizzle::R,
         g: vk::ComponentSwizzle::G,
@@ -257,23 +286,13 @@ impl AdImage2D {
       self.ash_device.inner().create_image_view(&view_create_info, None)
         .map_err(|e| format!("at creating vk image view: {e}"))?
     };
-    Ok(AdImageView { ash_device: self.ash_device.clone(), inner: image_view, })
+    Ok(AdImageView {
+      ash_device: self.ash_device.clone(),
+      inner: image_view,
+      image,
+      view_type,
+    })
   }
-}
-
-impl Drop for AdImage2D {
-  fn drop(&mut self) {
-    unsafe {
-      self.ash_device.inner().destroy_image(self.inner, None);
-    }
-  }
-}
-
-#[derive(getset::Getters, getset::CopyGetters)]
-pub struct AdImageView {
-  ash_device: Arc<AdAshDevice>,
-  #[getset(get_copy = "pub")]
-  inner: vk::ImageView,
 }
 
 impl Drop for AdImageView {
@@ -288,7 +307,7 @@ impl Drop for AdImageView {
 pub enum AdDescriptorBinding {
   StorageBuffer(Vec<Option<Arc<AdBuffer>>>),
   UniformBuffer(Vec<Option<Arc<AdBuffer>>>),
-  Image2D(Vec<Option<Arc<AdImage2D>>>),
+  Image2D(Vec<Option<Arc<(AdImageView, vk::ImageLayout)>>>),
 }
 
 impl AdDescriptorBinding {
@@ -305,6 +324,52 @@ impl AdDescriptorBinding {
       Self::StorageBuffer(x) => x.len() as u32,
       Self::UniformBuffer(x) => x.len() as u32,
       Self::Image2D(x) => x.len() as u32,
+    }
+  }
+
+  pub fn get_descriptor_infos(&self) -> (Vec<vk::DescriptorBufferInfo>, Vec<vk::DescriptorImageInfo>) {
+    match self {
+      AdDescriptorBinding::StorageBuffer(v) => {
+        let buffer_infos = v
+          .iter()
+          .filter_map(|x|
+            x.as_ref().map(|b|
+              vk::DescriptorBufferInfo::default()
+                .buffer(b.inner())
+                .offset(0)
+                .range(b.size())
+            )
+          )
+          .collect::<Vec<_>>();
+        (buffer_infos, vec![])
+      },
+      AdDescriptorBinding::UniformBuffer(v) => {
+        let buffer_infos = v
+          .iter()
+          .filter_map(|x|
+            x.as_ref().map(|b|
+              vk::DescriptorBufferInfo::default()
+                .buffer(b.inner())
+                .offset(0)
+                .range(b.size())
+            )
+          )
+          .collect::<Vec<_>>();
+        (buffer_infos, vec![])
+      },
+      AdDescriptorBinding::Image2D(v) => {
+        let image_infos = v
+          .iter()
+          .filter_map(|x|
+            x.as_ref().map(|id|
+              vk::DescriptorImageInfo::default()
+                .image_view(id.0.inner())
+                .image_layout(id.1)
+            )
+          )
+          .collect::<Vec<_>>();
+        (vec![], image_infos)
+      },
     }
   }
 
@@ -407,10 +472,15 @@ impl Drop for AdDescriptorPool {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdDescriptorSet {
+  #[getset(get_copy = "pub")]
   inner: vk::DescriptorSet,
+  #[getset(get = "pub")]
   bindings: Vec<AdDescriptorBinding>,
+  #[getset(get = "pub")]
   desc_pool: Arc<AdDescriptorPool>,
+  #[getset(get = "pub")]
   desc_layout: Arc<AdDescriptorSetLayout>,
 }
 
@@ -448,6 +518,26 @@ impl AdDescriptorSet {
             .collect::<Vec<_>>()
         })
     }    
+  }
+
+  pub fn set_binding(&mut self, binding_id: u32, binding: AdDescriptorBinding) {
+    let (buffers_info, images_info) = binding.get_descriptor_infos();
+    unsafe {
+      self
+        .desc_pool
+        .ash_device
+        .inner()
+        .update_descriptor_sets(
+          &[
+            vk::WriteDescriptorSet::default()
+              .dst_set(self.inner)
+              .dst_binding(binding_id)
+              .buffer_info(&buffers_info)
+              .image_info(&images_info)],
+          &[]
+        );
+    }
+    self.bindings[binding_id as usize] = binding;
   }
 }
 

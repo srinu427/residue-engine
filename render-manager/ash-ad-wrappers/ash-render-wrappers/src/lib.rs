@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::Arc};
 
 use ash_context::{ash::{self, vk}, getset, AdAshDevice};
-use ash_data_wrappers::AdDescriptorSetLayout;
+use ash_data_wrappers::{AdDescriptorSetLayout, AdImage, AdImageView};
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdRenderPass {
@@ -176,6 +176,58 @@ impl Drop for AdPipeline {
     unsafe {
       self.render_pass.ash_device().inner().destroy_pipeline(self.inner, None);
       self.render_pass.ash_device().inner().destroy_pipeline_layout(self.layout, None);
+    }
+  }
+}
+
+#[derive(getset::Getters, getset::CopyGetters)]
+pub struct AdFrameBuffer {
+  #[getset(get = "pub")]
+  render_pass: Arc<AdRenderPass>,
+  #[getset(get = "pub")]
+  attachments: Vec<Arc<AdImageView>>,
+  #[getset(get_copy = "pub")]
+  resolution: vk::Extent2D,
+  #[getset(get_copy = "pub")]
+  layers: u32,
+  #[getset(get_copy = "pub")]
+  inner: vk::Framebuffer,
+}
+
+impl AdFrameBuffer {
+  pub fn new(
+    render_pass: Arc<AdRenderPass>,
+    attachments: Vec<Arc<AdImageView>>,
+    resolution: vk::Extent2D,
+    layers: u32,
+  ) -> Result<Self, String> {
+    let vk_framebuffer = unsafe {
+      render_pass
+      .ash_device()
+      .inner().create_framebuffer(
+        &vk::FramebufferCreateInfo::default()
+          .render_pass(render_pass.inner())
+          .attachments(
+            &attachments
+              .iter()
+              .map(|x| x.inner())
+              .collect::<Vec<_>>()
+          )
+          .width(resolution.width)
+          .height(resolution.height)
+          .layers(layers),
+        None
+      )
+      .map_err(|e| format!("at creating vk frame buffer: {e}"))?
+    };
+    Ok(Self { render_pass, attachments, resolution, layers, inner: vk_framebuffer })
+  }
+}
+
+impl Drop for AdFrameBuffer {
+  fn drop(&mut self) {
+    unsafe {
+      self.render_pass.ash_device().inner().destroy_framebuffer(self.inner, None);
     }
   }
 }
