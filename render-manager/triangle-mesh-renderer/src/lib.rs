@@ -154,17 +154,17 @@ impl TriMeshRenderer {
     Ok(())
   }
 
-  pub fn render_meshes(&self, cmd_buffer: &AdCommandBuffer, frame_buffer: &AdFrameBuffer, camera_dset: vk::DescriptorSet) {
+  pub fn render_meshes(
+    &self,
+    cmd_buffer: &AdCommandBuffer,
+    frame_buffer: &AdFrameBuffer,
+    camera_dset: vk::DescriptorSet
+  ) {
     cmd_buffer.begin_render_pass(
       self.render_pass.inner(),
       frame_buffer.inner(),
-      vk::Rect2D {
-        offset: vk::Offset2D { x: 0, y: 0 },
-        extent: frame_buffer.resolution(),
-      },
-      &[vk::ClearValue {
-        color: vk::ClearColorValue { float32: [1.0, 0.0, 0.0, 0.0] },
-      }],
+      vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: frame_buffer.resolution() },
+      &[vk::ClearValue { color: vk::ClearColorValue { float32: [1.0, 0.0, 0.0, 0.0] } }],
       vk::SubpassContents::INLINE,
     );
     cmd_buffer
@@ -178,10 +178,9 @@ impl TriMeshRenderer {
       min_depth: 0.0,
       max_depth: 1.0,
     }]);
-    cmd_buffer.set_scissor(&[vk::Rect2D {
-      offset: vk::Offset2D { x: 0, y: 0 },
-      extent: frame_buffer.resolution(),
-    }]);
+    cmd_buffer.set_scissor(
+      &[vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: frame_buffer.resolution() }]
+    );
 
     for mesh in self.meshes.iter() {
       cmd_buffer.bind_descriptor_sets(

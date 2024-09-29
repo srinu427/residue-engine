@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::Arc};
 
 use ash_context::{ash::{self, vk}, getset, AdAshDevice};
-use ash_data_wrappers::{AdDescriptorSetLayout, AdImage, AdImageView};
+use ash_data_wrappers::{AdDescriptorSetLayout, AdImageView};
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdRenderPass {
@@ -200,7 +200,7 @@ impl AdFrameBuffer {
     attachments: Vec<Arc<AdImageView>>,
     resolution: vk::Extent2D,
     layers: u32,
-  ) -> Result<Self, String> {
+  ) -> Result<Arc<Self>, String> {
     let vk_framebuffer = unsafe {
       render_pass
       .ash_device()
@@ -220,7 +220,7 @@ impl AdFrameBuffer {
       )
       .map_err(|e| format!("at creating vk frame buffer: {e}"))?
     };
-    Ok(Self { render_pass, attachments, resolution, layers, inner: vk_framebuffer })
+    Ok(Arc::new(Self { render_pass, attachments, resolution, layers, inner: vk_framebuffer }))
   }
 }
 

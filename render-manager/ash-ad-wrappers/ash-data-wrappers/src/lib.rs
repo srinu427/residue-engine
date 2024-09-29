@@ -76,7 +76,7 @@ pub struct AdBuffer {
   name: String,
   ash_device: Arc<AdAshDevice>,
   #[getset(get = "pub")]
-  allocation: AdAllocation,
+  allocation: Mutex<AdAllocation>,
 }
 
 impl AdBuffer {
@@ -113,7 +113,7 @@ impl AdBuffer {
         size,
         name: name.to_string(),
         ash_device,
-        allocation
+        allocation: Mutex::new(allocation)
       })
     }
   }
@@ -164,13 +164,15 @@ impl AdBuffer {
     Ok(buffer)
   }
 
-  pub fn write_data<T>(&mut self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
+  pub fn write_data<T>(&self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
     let data = Self::get_byte_slice(struct_slice);
     if offset + data.len() > self.size as usize {
       return Err(format!("buffer {} only supports {} bytes", &self.name, self.size))
     }
     self
       .allocation
+      .lock()
+      .map_err(|e| format!("at getting lock for buffer mem allocation: {e}"))?
       .write_data(offset, data)
   }
 
@@ -211,23 +213,56 @@ pub struct AdImage {
 impl AdImage {
   pub fn new_2d(
     ash_device: Arc<AdAshDevice>,
-    vk_image: vk::Image,
+    allocator: Arc<Mutex<Allocator>>,
+    mem_location: MemoryLocation,
     name: &str,
-    resolution: vk::Extent2D,
     format: vk::Format,
-    allocation: AdAllocation
-  ) -> Self {
-    Self {
-      ash_device,
-      inner: vk_image,
-      itype: vk::ImageType::TYPE_2D,
-      name: name.to_string(),
-      resolution: vk::Extent3D::default()
-        .width(resolution.width)
-        .height(resolution.height)
-        .depth(1),
-      format,
-      allocation,
+    resolution: vk::Extent2D,
+    usage: vk::ImageUsageFlags,
+    samples: vk::SampleCountFlags,
+    mip_levels: u32,
+  ) -> Result<Arc<Self>, String> {
+    unsafe {
+      let vk_image = ash_device
+        .inner()
+        .create_image(
+          &vk::ImageCreateInfo::default()
+            .usage(usage)
+            .format(format)
+            .extent(vk::Extent3D::from(resolution).depth(1))
+            .samples(samples)
+            .mip_levels(mip_levels)
+            .image_type(vk::ImageType::TYPE_2D)
+            .array_layers(1),
+          None,
+        )
+        .map_err(|e| format!("at vk image create: {e}"))?;
+      let allocation = AdAllocation::new(
+        allocator,
+        name,
+        mem_location,
+        ash_device.inner().get_image_memory_requirements(vk_image)
+      )?;
+      ash_device
+        .inner()
+        .bind_image_memory(
+          vk_image,
+          allocation.inner().as_ref().ok_or("mem not allocated")?.memory(),
+          allocation.inner().as_ref().ok_or("mem not allocated")?.offset()
+        )
+        .map_err(|e| format!("at image mem bind: {e}"))?;
+      Ok(Arc::new(Self {
+        ash_device,
+        inner: vk_image,
+        itype: vk::ImageType::TYPE_2D,
+        name: name.to_string(),
+        resolution: vk::Extent3D::default()
+          .width(resolution.width)
+          .height(resolution.height)
+          .depth(1),
+        format,
+        allocation,
+      }))
     }
   }
 
@@ -255,16 +290,15 @@ pub struct AdImageView {
 
 impl AdImageView {
   pub fn create_view(
-    &self,
     image: Arc<AdImage>,
     view_type: vk::ImageViewType,
     subresource_range: vk::ImageSubresourceRange,
-  ) -> Result<AdImageView, String> {
+  ) -> Result<Arc<AdImageView>, String> {
     // Check view type support
     if (view_type == vk::ImageViewType::TYPE_1D && image.itype() != vk::ImageType::TYPE_1D) ||
       (view_type == vk::ImageViewType::TYPE_1D_ARRAY && image.itype() != vk::ImageType::TYPE_1D) ||
-      (view_type == vk::ImageViewType::TYPE_2D && (image.itype() != vk::ImageType::TYPE_2D || image.itype() != vk::ImageType::TYPE_3D)) ||
-      (view_type == vk::ImageViewType::TYPE_2D_ARRAY && (image.itype() != vk::ImageType::TYPE_1D || image.itype() != vk::ImageType::TYPE_3D)) ||
+      (view_type == vk::ImageViewType::TYPE_2D && (image.itype() != vk::ImageType::TYPE_2D && image.itype() != vk::ImageType::TYPE_3D)) ||
+      (view_type == vk::ImageViewType::TYPE_2D_ARRAY && (image.itype() != vk::ImageType::TYPE_1D && image.itype() != vk::ImageType::TYPE_3D)) ||
       (view_type == vk::ImageViewType::CUBE && image.itype() != vk::ImageType::TYPE_2D) ||
       (view_type == vk::ImageViewType::CUBE_ARRAY && image.itype() != vk::ImageType::TYPE_2D) ||
       (view_type == vk::ImageViewType::TYPE_3D && image.itype() != vk::ImageType::TYPE_3D) {
@@ -283,15 +317,15 @@ impl AdImageView {
         a: vk::ComponentSwizzle::A,
       });
     let image_view = unsafe {
-      self.ash_device.inner().create_image_view(&view_create_info, None)
+      image.ash_device.inner().create_image_view(&view_create_info, None)
         .map_err(|e| format!("at creating vk image view: {e}"))?
     };
-    Ok(AdImageView {
-      ash_device: self.ash_device.clone(),
+    Ok(Arc::new(AdImageView {
+      ash_device: image.ash_device.clone(),
       inner: image_view,
       image,
       view_type,
-    })
+    }))
   }
 }
 

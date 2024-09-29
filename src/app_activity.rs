@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use render_manager::{ AdSurface, RenderManager, VkInstances};
+use render_manager::{ AdAshInstance, AdSurface, AdSurfaceInstance, RenderManager};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -9,13 +9,13 @@ pub struct AppActivity {
   surface: Option<Arc<AdSurface>>,
   window: Option<Window>,
   render_manager: Option<RenderManager>,
-  vk_instances: Arc<VkInstances>,
+  ash_instance: Arc<AdAshInstance>,
 }
 
 impl AppActivity {
   pub fn new() -> Result<Self, String> {
-    let vk_instances = Arc::new(VkInstances::new()?);
-    Ok(Self { vk_instances, window: None, render_manager: None, surface: None })
+    let ash_instance = Arc::new(AdAshInstance::new()?);
+    Ok(Self { ash_instance, window: None, render_manager: None, surface: None })
   }
 }
 
@@ -24,7 +24,8 @@ impl ApplicationHandler for AppActivity {
     if self.window.is_none() {
       match event_loop.create_window(WindowAttributes::default()) {
         Ok(w) => {
-          let surface = match self.vk_instances.make_surface(&w) {
+          let surface_instance = Arc::new(AdSurfaceInstance::new(self.ash_instance.clone()));
+          let surface = match AdSurface::new(surface_instance, &w) {
             Ok(x) => {Arc::new(x)}
             Err(e) => {
               eprintln!("error creating surface: {e}");
@@ -33,7 +34,7 @@ impl ApplicationHandler for AppActivity {
             }
           };
           let render_manager =
-            match RenderManager::new(Arc::clone(&self.vk_instances), Arc::clone(&surface)) {
+            match RenderManager::new(Arc::clone(&self.ash_instance.clone()), surface.clone()) {
             Ok(x) => {x}
             Err(e) => {
               eprintln!("error creating window: {e}");
