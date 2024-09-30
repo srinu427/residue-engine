@@ -1,0 +1,8 @@
+[package]
+name = "ash-queue-wrappers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash-context = {path = "../ash-context"}
+ash-sync-wrappers = {path = "../ash-sync-wrappers"}

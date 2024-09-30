@@ -1,0 +1,11 @@
+[package]
+name = "ash-surface-wrappers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ash-context = {path = "../ash-context"}
+ash-queue-wrappers = {path = "../ash-queue-wrappers"}
+ash-sync-wrappers = {path = "../ash-sync-wrappers"}
+ash-window = "0.13.0"
+raw-window-handle = "0.6.2"
