@@ -7,7 +7,7 @@ use ash_context::{
 
 pub struct AdDebugInstance {
   dbg_utils_instance: ext::debug_utils::Instance,
-  ash_instance: Arc<AdAshInstance>, // To stop deleting ash instance befor deleting this
+  _ash_instance: Arc<AdAshInstance>, // To stop deleting ash instance befor deleting this
 }
 
 impl AdDebugInstance {
@@ -17,7 +17,7 @@ impl AdDebugInstance {
         ash_instance.ash_entry(),
         ash_instance.inner(),
       ),
-      ash_instance,
+      _ash_instance: ash_instance,
     }
   }
 }
@@ -68,8 +68,8 @@ fn make_debug_mgr_create_info() -> vk::DebugUtilsMessengerCreateInfoEXT<'static>
 }
 
 pub struct AdDebugMessenger {
-  dbg_utils_messenger: vk::DebugUtilsMessengerEXT,
-  dbg_instance: Arc<AdDebugInstance>,
+  _dbg_utils_messenger: vk::DebugUtilsMessengerEXT,
+  _dbg_instance: Arc<AdDebugInstance>,
 }
 
 impl AdDebugMessenger {
@@ -79,7 +79,7 @@ impl AdDebugMessenger {
         .dbg_utils_instance
         .create_debug_utils_messenger(&make_debug_mgr_create_info(), None)
         .map_err(|e| format!("at dbg messenger init: {e}"))?;
-      Ok(Self { dbg_utils_messenger, dbg_instance })
+      Ok(Self { _dbg_utils_messenger: dbg_utils_messenger, _dbg_instance: dbg_instance })
     }
   }
 }
