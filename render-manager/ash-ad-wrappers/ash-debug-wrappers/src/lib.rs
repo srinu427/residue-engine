@@ -1,6 +1,9 @@
 use std::{borrow::Cow, ffi::CStr, sync::Arc};
 
-use ash_context::{ash::{ext, vk}, AdAshInstance};
+use ash_context::{
+  ash::{ext, vk},
+  AdAshInstance,
+};
 
 pub struct AdDebugInstance {
   dbg_utils_instance: ext::debug_utils::Instance,
@@ -14,7 +17,7 @@ impl AdDebugInstance {
         ash_instance.ash_entry(),
         ash_instance.inner(),
       ),
-      ash_instance
+      ash_instance,
     }
   }
 }
@@ -66,16 +69,16 @@ fn make_debug_mgr_create_info() -> vk::DebugUtilsMessengerCreateInfoEXT<'static>
 
 pub struct AdDebugMessenger {
   dbg_utils_messenger: vk::DebugUtilsMessengerEXT,
-  dbg_instance: Arc<AdDebugInstance>
+  dbg_instance: Arc<AdDebugInstance>,
 }
 
 impl AdDebugMessenger {
   pub fn new(dbg_instance: Arc<AdDebugInstance>) -> Result<Self, String> {
     unsafe {
       let dbg_utils_messenger = dbg_instance
-      .dbg_utils_instance
-      .create_debug_utils_messenger(&make_debug_mgr_create_info(), None)
-      .map_err(|e| format!("at dbg messenger init: {e}"))?;
+        .dbg_utils_instance
+        .create_debug_utils_messenger(&make_debug_mgr_create_info(), None)
+        .map_err(|e| format!("at dbg messenger init: {e}"))?;
       Ok(Self { dbg_utils_messenger, dbg_instance })
     }
   }

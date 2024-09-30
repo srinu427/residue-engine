@@ -1,17 +1,26 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+  collections::HashMap,
+  sync::{Arc, Mutex},
+};
 
 use ash_ad_wrappers::{
-  ash_context::{ash::{khr, vk}, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshDevice, GPUQueueType},
-  ash_data_wrappers::{AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdImage, AdImageView},
+  ash_context::{
+    ash::{khr, vk},
+    gpu_allocator::{vulkan::Allocator, MemoryLocation},
+    AdAshDevice, GPUQueueType,
+  },
+  ash_data_wrappers::{
+    AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout,
+  },
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
   ash_render_wrappers::AdFrameBuffer,
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
-  ash_sync_wrappers::{AdFence, AdSemaphore}
+  ash_sync_wrappers::{AdFence, AdSemaphore},
 };
 use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex};
 
-pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
+pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -32,24 +41,15 @@ pub struct RenderManager {
   render_cmd_buffers: Vec<AdCommandBuffer>,
   image_acquire_fence: AdFence,
   swapchain: AdSwapchain,
-  queues: HashMap<GPUQueueType,Arc<AdQueue>>,
+  queues: HashMap<GPUQueueType, Arc<AdQueue>>,
   ash_device: Arc<AdAshDevice>,
 }
 
 impl RenderManager {
   pub fn new(ash_instance: Arc<AdAshInstance>, surface: Arc<AdSurface>) -> Result<Self, String> {
-    let gpu = ash_instance
-      .list_dedicated_gpus()?
-      .iter()
-      .next()
-      .cloned()
-      .unwrap_or(ash_instance
-        .list_gpus()?
-        .iter()
-        .next()
-        .cloned()
-        .ok_or("no supported gpus".to_string())?
-      );
+    let gpu = ash_instance.list_dedicated_gpus()?.iter().next().cloned().unwrap_or(
+      ash_instance.list_gpus()?.iter().next().cloned().ok_or("no supported gpus".to_string())?,
+    );
     let mut q_f_idxs = ash_instance.select_gpu_queue_families(gpu)?;
     q_f_idxs.insert(
       GPUQueueType::Present,
@@ -57,7 +57,7 @@ impl RenderManager {
         .get_supported_queue_families(gpu)
         .iter()
         .next()
-        .ok_or("no supported present queues".to_string())?
+        .ok_or("no supported present queues".to_string())?,
     );
     let qf_info = ash_instance.get_queue_family_props(gpu);
     let mut queue_counts = HashMap::new();
@@ -79,13 +79,15 @@ impl RenderManager {
       gpu,
       device_extensions,
       vk::PhysicalDeviceFeatures::default(),
-      queue_counts.clone()
+      queue_counts.clone(),
     )?);
 
     let mut queues = HashMap::new();
     for (q_type, q_f_idx) in q_f_idxs {
       let queue_idx = queue_counts.entry(q_f_idx).or_default();
-      if *queue_idx > 0 { *queue_idx -= 1 };
+      if *queue_idx > 0 {
+        *queue_idx -= 1
+      };
       queues.insert(q_type, Arc::new(AdQueue::new(ash_device.clone(), q_f_idx, *queue_idx)));
     }
 
@@ -125,17 +127,18 @@ impl RenderManager {
       vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::COLOR_ATTACHMENT,
       surface_caps.current_transform,
       present_mode,
-      None
+      None,
     )?;
 
     let image_acquire_fence = AdFence::new(ash_device.clone(), vk::FenceCreateFlags::default())?;
 
     let render_cmd_pool = Arc::new(AdCommandPool::new(
       queues[&GPUQueueType::Graphics].clone(),
-      vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER
+      vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
     )?);
 
-    let render_cmd_buffers = AdCommandBuffer::new(render_cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 3)?;
+    let render_cmd_buffers =
+      AdCommandBuffer::new(render_cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 3)?;
 
     let render_semaphores = (0..3)
       .map(|_| AdSemaphore::new(ash_device.clone(), vk::SemaphoreCreateFlags::default()))
@@ -149,13 +152,13 @@ impl RenderManager {
 
     let camera_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
-      &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(vec![None]))]
+      &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(vec![None]))],
     )?);
 
     let mut triangle_mesh_renderer = TriMeshRenderer::new(
       ash_device.clone(),
       queues[&GPUQueueType::Transfer].clone(),
-      &camera_dset_layout
+      &camera_dset_layout,
     )?;
     let tri_verts_cpu = TriMeshCPU {
       verts: vec![
@@ -167,21 +170,33 @@ impl RenderManager {
     };
     triangle_mesh_renderer.add_mesh("triangle_main", &tri_verts_cpu)?;
 
-    let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(&render_cmd_buffers[0], gen_allocator.clone(), swapchain_resolution, 3)?;
+    let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(
+      &render_cmd_buffers[0],
+      gen_allocator.clone(),
+      swapchain_resolution,
+      3,
+    )?;
     for (i, fb) in triangle_frame_buffers.iter_mut().enumerate() {
-      fb.attachments()[0].image().allocation().lock().map_err(|e| "at getting image mem lock: {e}")?.rename(&format!("triangle_out_image_{i}"))?;
+      fb.attachments()[0]
+        .image()
+        .allocation()
+        .lock()
+        .map_err(|e| format!("at getting image mem lock: {e}"))?
+        .rename(&format!("triangle_out_image_{i}"))?;
     }
 
-    let vp_mat = glam::Mat4::perspective_rh(1.0, 1.333, 0.1, 1000.0) * glam::Mat4::look_at_rh(
-      glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 1.0f32 },
-      glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 0.0f32 },
-      glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 });
-    let camera = Camera3D{
+    let vp_mat = glam::Mat4::perspective_rh(1.0, 1.333, 0.1, 1000.0)
+      * glam::Mat4::look_at_rh(
+        glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 1.0f32 },
+        glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 0.0f32 },
+        glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
+      );
+    let camera = Camera3D {
       pos: glam::vec4(0.0, 0.0, 1.0, 0.0),
       look_dir: glam::vec4(0.0, 0.0, 0.0, 0.0),
-      view_proj_mat: vp_mat
+      view_proj_mat: vp_mat,
     };
-    
+
     let camera_buffer = Arc::new(AdBuffer::new(
       ash_device.clone(),
       gen_allocator.clone(),
@@ -191,14 +206,16 @@ impl RenderManager {
       std::mem::size_of::<Camera3D>() as u64,
       vk::BufferUsageFlags::UNIFORM_BUFFER,
     )?);
-    
+
     camera_buffer.write_data(0, &[camera])?;
-    
+
     let camera_dset_pool = Arc::new(AdDescriptorPool::new(
       ash_device.clone(),
       vk::DescriptorPoolCreateFlags::empty(),
       1,
-      &[vk::DescriptorPoolSize::default().descriptor_count(1).ty(vk::DescriptorType::UNIFORM_BUFFER)]
+      &[vk::DescriptorPoolSize::default()
+        .descriptor_count(1)
+        .ty(vk::DescriptorType::UNIFORM_BUFFER)],
     )?);
 
     let mut camera_dset = AdDescriptorSet::new(camera_dset_pool, &[&camera_dset_layout])?.remove(0);
@@ -257,11 +274,24 @@ impl RenderManager {
     }
 
     let current_sc_res = self.swapchain.resolution();
-    let triangle_out_image_res = self.triangle_frame_buffers[0].attachments()[0].image().resolution();
-    if current_sc_res.height != triangle_out_image_res.height || current_sc_res.width != triangle_out_image_res.width {
-      self.triangle_frame_buffers = self.triangle_mesh_renderer.create_framebuffers(&self.render_cmd_buffers[0], self.gen_allocator.clone(), current_sc_res, 3)?;
+    let triangle_out_image_res =
+      self.triangle_frame_buffers[0].attachments()[0].image().resolution();
+    if current_sc_res.height != triangle_out_image_res.height
+      || current_sc_res.width != triangle_out_image_res.width
+    {
+      self.triangle_frame_buffers = self.triangle_mesh_renderer.create_framebuffers(
+        &self.render_cmd_buffers[0],
+        self.gen_allocator.clone(),
+        current_sc_res,
+        3,
+      )?;
       for (i, fb) in self.triangle_frame_buffers.iter_mut().enumerate() {
-        fb.attachments()[0].image().allocation().lock().map_err(|e| "at getting image mem lock: {e}")?.rename(&format!("triangle_out_image_{i}"))?;
+        fb.attachments()[0]
+          .image()
+          .allocation()
+          .lock()
+          .map_err(|e| format!("at getting image mem lock: {e}"))?
+          .rename(&format!("triangle_out_image_{i}"))?;
       }
     }
 
@@ -312,7 +342,11 @@ impl RenderManager {
             .base_array_layer(0)
             .layer_count(1),
         )
-        .src_offsets(self.triangle_frame_buffers[image_idx as usize].attachments()[0].image().full_range_offset_3d())
+        .src_offsets(
+          self.triangle_frame_buffers[image_idx as usize].attachments()[0]
+            .image()
+            .full_range_offset_3d(),
+        )
         .dst_subresource(
           vk::ImageSubresourceLayers::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)

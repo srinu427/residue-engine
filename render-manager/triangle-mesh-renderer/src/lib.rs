@@ -1,9 +1,22 @@
-use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
+use std::{
+  collections::HashMap,
+  path::PathBuf,
+  sync::{Arc, Mutex},
+};
 
 use ash_ad_wrappers::{
-  ash_context::{ash::vk, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshDevice},
-  ash_data_wrappers::{AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdImage, AdImageView},
-  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue}, ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass}, ash_sync_wrappers::AdFence
+  ash_context::{
+    ash::vk,
+    gpu_allocator::{vulkan::Allocator, MemoryLocation},
+    AdAshDevice,
+  },
+  ash_data_wrappers::{
+    AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout,
+    AdImage, AdImageView,
+  },
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
+  ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass},
+  ash_sync_wrappers::AdFence,
 };
 
 #[repr(C)]
@@ -17,9 +30,7 @@ pub struct TriMeshCPU {
   pub triangles: Vec<[u32; 3]>,
 }
 
-impl TriMeshCPU {
-
-}
+impl TriMeshCPU {}
 
 pub struct TriMesh {
   indx_len: u32,
@@ -41,16 +52,17 @@ impl TriMeshRenderer {
   pub fn new(
     ash_device: Arc<AdAshDevice>,
     transfer_queue: Arc<AdQueue>,
-    cam_dset_layout: &AdDescriptorSetLayout
+    cam_dset_layout: &AdDescriptorSetLayout,
   ) -> Result<Self, String> {
     let mesh_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
-    let cmd_pool = Arc::new(AdCommandPool::new(transfer_queue, vk::CommandPoolCreateFlags::TRANSIENT)?);
+    let cmd_pool =
+      Arc::new(AdCommandPool::new(transfer_queue, vk::CommandPoolCreateFlags::TRANSIENT)?);
     let vert_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
       &[
         (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
         (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
-      ]
+      ],
     )?);
     let dset_pool = Arc::new(AdDescriptorPool::new(
       ash_device.clone(),
@@ -61,21 +73,17 @@ impl TriMeshRenderer {
     let render_pass = Arc::new(AdRenderPass::new(
       ash_device.clone(),
       vk::RenderPassCreateFlags::default(),
-      &[
-        vk::AttachmentDescription::default()
-          .format(vk::Format::R8G8B8A8_UNORM)
-          .samples(vk::SampleCountFlags::TYPE_1)
-          .initial_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-          .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-          .load_op(vk::AttachmentLoadOp::CLEAR)
-      ],
-      &[
-        vk::SubpassDescription::default()
-          .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-          .color_attachments(&[vk::AttachmentReference::default()
+      &[vk::AttachmentDescription::default()
+        .format(vk::Format::R8G8B8A8_UNORM)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .initial_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .load_op(vk::AttachmentLoadOp::CLEAR)],
+      &[vk::SubpassDescription::default()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&[vk::AttachmentReference::default()
           .attachment(0)
-          .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)])
-        ],
+          .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)])],
       &[
         vk::SubpassDependency::default()
           .src_subpass(vk::SUBPASS_EXTERNAL)
@@ -91,7 +99,7 @@ impl TriMeshRenderer {
           .dst_stage_mask(vk::PipelineStageFlags::TRANSFER)
           .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
           .dst_access_mask(vk::AccessFlags::TRANSFER_READ),
-      ]
+      ],
     )?);
 
     let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
@@ -115,11 +123,20 @@ impl TriMeshRenderer {
           .blend_enable(false),
       ]),
     )?;
-    
-    Ok(Self { meshes: vec![], mesh_allocator, render_pass, pipeline, vert_dset_layout, dset_pool, ash_device, cmd_pool })
+
+    Ok(Self {
+      meshes: vec![],
+      mesh_allocator,
+      render_pass,
+      pipeline,
+      vert_dset_layout,
+      dset_pool,
+      ash_device,
+      cmd_pool,
+    })
   }
 
-  pub fn add_mesh(&mut self, name: &str, cpu_mesh: &TriMeshCPU) -> Result<(), String>{
+  pub fn add_mesh(&mut self, name: &str, cpu_mesh: &TriMeshCPU) -> Result<(), String> {
     let tmp_cmd_buffer =
       AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let vert_buffer = Arc::new(AdBuffer::from_data(
@@ -130,7 +147,7 @@ impl TriMeshRenderer {
       vk::BufferCreateFlags::empty(),
       vk::BufferUsageFlags::STORAGE_BUFFER,
       &cpu_mesh.verts,
-      &tmp_cmd_buffer
+      &tmp_cmd_buffer,
     )?);
 
     let tmp_cmd_buffer =
@@ -144,10 +161,11 @@ impl TriMeshRenderer {
       vk::BufferCreateFlags::empty(),
       vk::BufferUsageFlags::STORAGE_BUFFER,
       &indices,
-      &tmp_cmd_buffer
+      &tmp_cmd_buffer,
     )?);
 
-    let mut dset = AdDescriptorSet::new(self.dset_pool.clone(), &[&self.vert_dset_layout])?.remove(0);
+    let mut dset =
+      AdDescriptorSet::new(self.dset_pool.clone(), &[&self.vert_dset_layout])?.remove(0);
     dset.set_binding(0, AdDescriptorBinding::StorageBuffer(vec![Some(vert_buffer)]));
     dset.set_binding(1, AdDescriptorBinding::StorageBuffer(vec![Some(indx_buffer)]));
     self.meshes.push(TriMesh { indx_len: indices.len() as u32, dset });
@@ -158,7 +176,7 @@ impl TriMeshRenderer {
     &self,
     cmd_buffer: &AdCommandBuffer,
     frame_buffer: &AdFrameBuffer,
-    camera_dset: vk::DescriptorSet
+    camera_dset: vk::DescriptorSet,
   ) {
     cmd_buffer.begin_render_pass(
       self.render_pass.inner(),
@@ -167,8 +185,7 @@ impl TriMeshRenderer {
       &[vk::ClearValue { color: vk::ClearColorValue { float32: [1.0, 0.0, 0.0, 0.0] } }],
       vk::SubpassContents::INLINE,
     );
-    cmd_buffer
-      .bind_pipeline(vk::PipelineBindPoint::GRAPHICS, self.pipeline.inner());
+    cmd_buffer.bind_pipeline(vk::PipelineBindPoint::GRAPHICS, self.pipeline.inner());
 
     cmd_buffer.set_view_port(&[vk::Viewport {
       x: 0.0,
@@ -178,9 +195,10 @@ impl TriMeshRenderer {
       min_depth: 0.0,
       max_depth: 1.0,
     }]);
-    cmd_buffer.set_scissor(
-      &[vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: frame_buffer.resolution() }]
-    );
+    cmd_buffer.set_scissor(&[vk::Rect2D {
+      offset: vk::Offset2D { x: 0, y: 0 },
+      extent: frame_buffer.resolution(),
+    }]);
 
     for mesh in self.meshes.iter() {
       cmd_buffer.bind_descriptor_sets(
@@ -198,7 +216,7 @@ impl TriMeshRenderer {
     cmd_buffer: &AdCommandBuffer,
     allocator: Arc<Mutex<Allocator>>,
     resolution: vk::Extent2D,
-    count: usize
+    count: usize,
   ) -> Result<Vec<Arc<AdFrameBuffer>>, String> {
     let triangle_out_images = (0..count)
       .map(|i| {
@@ -211,7 +229,7 @@ impl TriMeshRenderer {
           resolution,
           vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
           vk::SampleCountFlags::TYPE_1,
-          1
+          1,
         )
       })
       .collect::<Result<Vec<_>, _>>()?;
@@ -252,17 +270,19 @@ impl TriMeshRenderer {
     fence.reset()?;
 
     let triangle_out_image_views = (0..3)
-      .map(|i| AdImageView::create_view(
-        triangle_out_images[i].clone(),
-        vk::ImageViewType::TYPE_2D,
-        vk::ImageSubresourceRange {
-          aspect_mask: vk::ImageAspectFlags::COLOR,
-          base_mip_level: 0,
-          level_count: 1,
-          base_array_layer: 0,
-          layer_count: 1
-        }
-      ))
+      .map(|i| {
+        AdImageView::create_view(
+          triangle_out_images[i].clone(),
+          vk::ImageViewType::TYPE_2D,
+          vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+          },
+        )
+      })
       .collect::<Result<Vec<_>, _>>()?;
 
     let triangle_frame_buffers = (0..3)
@@ -271,7 +291,7 @@ impl TriMeshRenderer {
           self.render_pass.clone(),
           vec![triangle_out_image_views[i].clone()],
           resolution,
-          1
+          1,
         )
       })
       .collect::<Result<Vec<_>, String>>()?;

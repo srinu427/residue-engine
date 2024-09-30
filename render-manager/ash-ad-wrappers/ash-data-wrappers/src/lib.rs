@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use ash_context::gpu_allocator::{
+  vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator},
+  MemoryLocation,
+};
 use ash_context::{ash::vk, getset, AdAshDevice};
 use ash_queue_wrappers::AdCommandBuffer;
 use ash_sync_wrappers::AdFence;
-use ash_context::gpu_allocator::{
-  vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator},
-  MemoryLocation
-};
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdAllocation {
@@ -14,7 +14,7 @@ pub struct AdAllocation {
   #[getset(get = "pub")]
   inner: Option<Allocation>,
   #[getset(get = "pub")]
-  name: String
+  name: String,
 }
 
 impl AdAllocation {
@@ -23,7 +23,7 @@ impl AdAllocation {
     name: &str,
     mem_location: MemoryLocation,
     requirements: vk::MemoryRequirements,
-  ) -> Result<Self, String>{
+  ) -> Result<Self, String> {
     let altn = allocator
       .lock()
       .map_err(|e| format!("at getting allocator lock: {e}"))?
@@ -45,10 +45,7 @@ impl AdAllocation {
       .map(|alloc| {
         alloc
           .mapped_slice_mut()
-          .map(|x| {
-            x[offset..bytes.len()]
-              .copy_from_slice(bytes)
-          })
+          .map(|x| x[offset..bytes.len()].copy_from_slice(bytes))
           .ok_or(format!("at mapping buffer {} 's memory", &self.name))
       })
       .ok_or(format!("no memory allocated for buffer {}", &self.name))??; // second ? for failure in mapped_slice_mut
@@ -56,9 +53,7 @@ impl AdAllocation {
   }
 
   pub fn rename(&mut self, name: &str) -> Result<(), String> {
-    let curr_allocation = self.inner
-      .as_mut()
-      .ok_or(format!("memory not allocated to rename"))?;
+    let curr_allocation = self.inner.as_mut().ok_or(format!("memory not allocated to rename"))?;
     self
       .allocator
       .lock()
@@ -112,7 +107,7 @@ impl AdBuffer {
         allocator,
         name,
         mem_location,
-        ash_device.inner().get_buffer_memory_requirements(buffer)
+        ash_device.inner().get_buffer_memory_requirements(buffer),
       )?;
       ash_device
         .inner()
@@ -127,7 +122,7 @@ impl AdBuffer {
         size,
         name: name.to_string(),
         ash_device,
-        allocation: Mutex::new(allocation)
+        allocation: Mutex::new(allocation),
       })
     }
   }
@@ -167,7 +162,7 @@ impl AdBuffer {
     cmd_buffer.copy_buffer_to_buffer_cmd(
       stage_buffer.inner(),
       buffer.inner(),
-      &[vk::BufferCopy{ src_offset: 0, dst_offset: 0, size: data.len() as u64 }]
+      &[vk::BufferCopy { src_offset: 0, dst_offset: 0, size: data.len() as u64 }],
     );
     cmd_buffer.end()?;
 
@@ -181,7 +176,7 @@ impl AdBuffer {
   pub fn write_data<T>(&self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
     let data = Self::get_byte_slice(struct_slice);
     if offset + data.len() > self.size as usize {
-      return Err(format!("buffer {} only supports {} bytes", &self.name, self.size))
+      return Err(format!("buffer {} only supports {} bytes", &self.name, self.size));
     }
     self
       .allocation
@@ -194,7 +189,7 @@ impl AdBuffer {
     unsafe {
       std::slice::from_raw_parts(
         struct_slice.as_ptr() as *const u8,
-        std::mem::size_of::<T>() * struct_slice.len()
+        std::mem::size_of::<T>() * struct_slice.len(),
       )
     }
   }
@@ -256,14 +251,14 @@ impl AdImage {
         allocator,
         name,
         mem_location,
-        ash_device.inner().get_image_memory_requirements(vk_image)
+        ash_device.inner().get_image_memory_requirements(vk_image),
       )?;
       ash_device
         .inner()
         .bind_image_memory(
           vk_image,
           allocation.inner().as_ref().ok_or("mem not allocated")?.memory(),
-          allocation.inner().as_ref().ok_or("mem not allocated")?.offset()
+          allocation.inner().as_ref().ok_or("mem not allocated")?.offset(),
         )
         .map_err(|e| format!("at image mem bind: {e}"))?;
       Ok(Arc::new(Self {
@@ -318,13 +313,16 @@ impl AdImageView {
     subresource_range: vk::ImageSubresourceRange,
   ) -> Result<Arc<AdImageView>, String> {
     // Check view type support
-    if (view_type == vk::ImageViewType::TYPE_1D && image.itype() != vk::ImageType::TYPE_1D) ||
-      (view_type == vk::ImageViewType::TYPE_1D_ARRAY && image.itype() != vk::ImageType::TYPE_1D) ||
-      (view_type == vk::ImageViewType::TYPE_2D && (image.itype() != vk::ImageType::TYPE_2D && image.itype() != vk::ImageType::TYPE_3D)) ||
-      (view_type == vk::ImageViewType::TYPE_2D_ARRAY && (image.itype() != vk::ImageType::TYPE_1D && image.itype() != vk::ImageType::TYPE_3D)) ||
-      (view_type == vk::ImageViewType::CUBE && image.itype() != vk::ImageType::TYPE_2D) ||
-      (view_type == vk::ImageViewType::CUBE_ARRAY && image.itype() != vk::ImageType::TYPE_2D) ||
-      (view_type == vk::ImageViewType::TYPE_3D && image.itype() != vk::ImageType::TYPE_3D) {
+    if (view_type == vk::ImageViewType::TYPE_1D && image.itype() != vk::ImageType::TYPE_1D)
+      || (view_type == vk::ImageViewType::TYPE_1D_ARRAY && image.itype() != vk::ImageType::TYPE_1D)
+      || (view_type == vk::ImageViewType::TYPE_2D
+        && (image.itype() != vk::ImageType::TYPE_2D && image.itype() != vk::ImageType::TYPE_3D))
+      || (view_type == vk::ImageViewType::TYPE_2D_ARRAY
+        && (image.itype() != vk::ImageType::TYPE_1D && image.itype() != vk::ImageType::TYPE_3D))
+      || (view_type == vk::ImageViewType::CUBE && image.itype() != vk::ImageType::TYPE_2D)
+      || (view_type == vk::ImageViewType::CUBE_ARRAY && image.itype() != vk::ImageType::TYPE_2D)
+      || (view_type == vk::ImageViewType::TYPE_3D && image.itype() != vk::ImageType::TYPE_3D)
+    {
       return Err("unsupported view type".to_string());
     }
 
@@ -340,7 +338,10 @@ impl AdImageView {
         a: vk::ComponentSwizzle::A,
       });
     let image_view = unsafe {
-      image.ash_device.inner().create_image_view(&view_create_info, None)
+      image
+        .ash_device
+        .inner()
+        .create_image_view(&view_create_info, None)
         .map_err(|e| format!("at creating vk image view: {e}"))?
     };
     Ok(Arc::new(AdImageView {
@@ -384,49 +385,43 @@ impl AdDescriptorBinding {
     }
   }
 
-  pub fn get_descriptor_infos(&self) -> (Vec<vk::DescriptorBufferInfo>, Vec<vk::DescriptorImageInfo>) {
+  pub fn get_descriptor_infos(
+    &self,
+  ) -> (Vec<vk::DescriptorBufferInfo>, Vec<vk::DescriptorImageInfo>) {
     match self {
       AdDescriptorBinding::StorageBuffer(v) => {
         let buffer_infos = v
           .iter()
-          .filter_map(|x|
-            x.as_ref().map(|b|
-              vk::DescriptorBufferInfo::default()
-                .buffer(b.inner())
-                .offset(0)
-                .range(b.size())
-            )
-          )
+          .filter_map(|x| {
+            x.as_ref().map(|b| {
+              vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
+            })
+          })
           .collect::<Vec<_>>();
         (buffer_infos, vec![])
-      },
+      }
       AdDescriptorBinding::UniformBuffer(v) => {
         let buffer_infos = v
           .iter()
-          .filter_map(|x|
-            x.as_ref().map(|b|
-              vk::DescriptorBufferInfo::default()
-                .buffer(b.inner())
-                .offset(0)
-                .range(b.size())
-            )
-          )
+          .filter_map(|x| {
+            x.as_ref().map(|b| {
+              vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
+            })
+          })
           .collect::<Vec<_>>();
         (buffer_infos, vec![])
-      },
+      }
       AdDescriptorBinding::Image2D(v) => {
         let image_infos = v
           .iter()
-          .filter_map(|x|
-            x.as_ref().map(|id|
-              vk::DescriptorImageInfo::default()
-                .image_view(id.0.inner())
-                .image_layout(id.1)
-            )
-          )
+          .filter_map(|x| {
+            x.as_ref().map(|id| {
+              vk::DescriptorImageInfo::default().image_view(id.0.inner()).image_layout(id.1)
+            })
+          })
           .collect::<Vec<_>>();
         (vec![], image_infos)
-      },
+      }
     }
   }
 
@@ -451,16 +446,14 @@ pub struct AdDescriptorSetLayout {
 impl AdDescriptorSetLayout {
   pub fn new(
     ash_device: Arc<AdAshDevice>,
-    bindings: &[(vk::ShaderStageFlags, AdDescriptorBinding)]
+    bindings: &[(vk::ShaderStageFlags, AdDescriptorBinding)],
   ) -> Result<Self, String> {
-    let empty_bindings = bindings
-      .iter()
-      .map(|x| { (x.0, x.1.clone().drop_embedded()) })
-      .collect::<Vec<_>>();
+    let empty_bindings =
+      bindings.iter().map(|x| (x.0, x.1.clone().drop_embedded())).collect::<Vec<_>>();
     let vk_descriptor_bindings = bindings
       .iter()
       .enumerate()
-      .map(|(i, binding)|{
+      .map(|(i, binding)| {
         vk::DescriptorSetLayoutBinding::default()
           .binding(i as u32)
           .stage_flags(binding.0)
@@ -468,14 +461,14 @@ impl AdDescriptorSetLayout {
           .descriptor_count(binding.1.get_descriptor_count())
       })
       .collect::<Vec<_>>();
-    let dsl_create_info = vk::DescriptorSetLayoutCreateInfo::default()
-      .bindings(&vk_descriptor_bindings);
+    let dsl_create_info =
+      vk::DescriptorSetLayoutCreateInfo::default().bindings(&vk_descriptor_bindings);
     unsafe {
       let descriptor_set_layout = ash_device
         .inner()
         .create_descriptor_set_layout(&dsl_create_info, None)
         .map_err(|e| format!("at creating vk descriptor set layout: {e}"))?;
-      Ok(AdDescriptorSetLayout{ ash_device, inner: descriptor_set_layout, empty_bindings })
+      Ok(AdDescriptorSetLayout { ash_device, inner: descriptor_set_layout, empty_bindings })
     }
   }
 }
@@ -501,21 +494,23 @@ impl AdDescriptorPool {
     ash_device: Arc<AdAshDevice>,
     flags: vk::DescriptorPoolCreateFlags,
     max_sets: u32,
-    pool_sizes: &[vk::DescriptorPoolSize]
+    pool_sizes: &[vk::DescriptorPoolSize],
   ) -> Result<Self, String> {
     unsafe {
-      let descriptor_pool = ash_device.inner().create_descriptor_pool(
-        &vk::DescriptorPoolCreateInfo::default()
-          .flags(flags)
-          .max_sets(max_sets)
-          .pool_sizes(pool_sizes),
-        None
-      )
+      let descriptor_pool = ash_device
+        .inner()
+        .create_descriptor_pool(
+          &vk::DescriptorPoolCreateInfo::default()
+            .flags(flags)
+            .max_sets(max_sets)
+            .pool_sizes(pool_sizes),
+          None,
+        )
         .map_err(|e| format!("at creating vk descriptor pool: {e}"))?;
       Ok(Self {
         ash_device,
         inner: descriptor_pool,
-        free_supported: flags.contains(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
+        free_supported: flags.contains(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
       })
     }
   }
@@ -544,7 +539,7 @@ pub struct AdDescriptorSet {
 impl AdDescriptorSet {
   pub fn new(
     desc_pool: Arc<AdDescriptorPool>,
-    desc_layouts: &[&Arc<AdDescriptorSetLayout>]
+    desc_layouts: &[&Arc<AdDescriptorSetLayout>],
   ) -> Result<Vec<Self>, String> {
     unsafe {
       desc_pool
@@ -553,28 +548,26 @@ impl AdDescriptorSet {
         .allocate_descriptor_sets(
           &vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(desc_pool.inner)
-            .set_layouts(&desc_layouts.iter().map(|x| x.inner).collect::<Vec<_>>())
+            .set_layouts(&desc_layouts.iter().map(|x| x.inner).collect::<Vec<_>>()),
         )
         .map_err(|e| format!("at allocating vk dsets: {e}"))
         .map(|vk_dsets| {
           vk_dsets
             .iter()
             .enumerate()
-            .map(|(i, vk_dset)| {
-              Self {
-                inner: *vk_dset,
-                bindings: desc_layouts[i]
-                  .empty_bindings()
-                  .iter()
-                  .map(|x| x.1.clone())
-                  .collect::<Vec<_>>(),
-                desc_pool: desc_pool.clone(),
-                desc_layout: desc_layouts[i].clone(),
-              }
+            .map(|(i, vk_dset)| Self {
+              inner: *vk_dset,
+              bindings: desc_layouts[i]
+                .empty_bindings()
+                .iter()
+                .map(|x| x.1.clone())
+                .collect::<Vec<_>>(),
+              desc_pool: desc_pool.clone(),
+              desc_layout: desc_layouts[i].clone(),
             })
             .collect::<Vec<_>>()
         })
-    }    
+    }
   }
 
   pub fn set_binding(&mut self, binding_id: u32, binding: AdDescriptorBinding) {
@@ -591,14 +584,7 @@ impl AdDescriptorSet {
       write_info = write_info.image_info(&images_info);
     }
     unsafe {
-      self
-        .desc_pool
-        .ash_device
-        .inner()
-        .update_descriptor_sets(
-          &[write_info],
-          &[]
-        );
+      self.desc_pool.ash_device.inner().update_descriptor_sets(&[write_info], &[]);
     }
     self.bindings[binding_id as usize] = binding;
   }
@@ -607,7 +593,7 @@ impl AdDescriptorSet {
 impl Drop for AdDescriptorSet {
   fn drop(&mut self) {
     unsafe {
-      if self.desc_pool.free_supported(){
+      if self.desc_pool.free_supported() {
         let _ = self
           .desc_pool
           .ash_device

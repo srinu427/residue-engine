@@ -1,9 +1,9 @@
 use std::{collections::HashMap, ffi::c_char, sync::Arc};
 
 pub use ash;
-pub use gpu_allocator;
-pub use getset;
 use ash::vk;
+pub use getset;
+pub use gpu_allocator;
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 
 mod init_helpers;
@@ -26,31 +26,26 @@ impl AdAshInstance {
   }
 
   pub fn list_gpus(&self) -> Result<Vec<vk::PhysicalDevice>, String> {
-    unsafe {
-      self.inner.enumerate_physical_devices().map_err(|e| format!("at getting gpus: {e}"))
-    }
+    unsafe { self.inner.enumerate_physical_devices().map_err(|e| format!("at getting gpus: {e}")) }
   }
 
   pub fn list_dedicated_gpus(&self) -> Result<Vec<vk::PhysicalDevice>, String> {
     unsafe {
-      self
-        .list_gpus()
-        .map(|gpu_list| {
-          gpu_list
-            .iter()
-            .filter(|x|
-              self.inner.get_physical_device_properties(**x).device_type ==
-               vk::PhysicalDeviceType::DISCRETE_GPU)
-            .cloned()
-            .collect::<Vec<_>>()
-        })
+      self.list_gpus().map(|gpu_list| {
+        gpu_list
+          .iter()
+          .filter(|x| {
+            self.inner.get_physical_device_properties(**x).device_type
+              == vk::PhysicalDeviceType::DISCRETE_GPU
+          })
+          .cloned()
+          .collect::<Vec<_>>()
+      })
     }
   }
 
   pub fn get_queue_family_props(&self, gpu: vk::PhysicalDevice) -> Vec<vk::QueueFamilyProperties> {
-    unsafe {
-      self.inner.get_physical_device_queue_family_properties(gpu)
-    }
+    unsafe { self.inner.get_physical_device_queue_family_properties(gpu) }
   }
 
   fn select_g_queue(qf_props: &[vk::QueueFamilyProperties]) -> Result<u32, String> {
@@ -75,13 +70,13 @@ impl AdAshInstance {
         }
         (i, *x, weight)
       })
-      .max_by(|x, y|
+      .max_by(|x, y| {
         if x.1.queue_count == y.1.queue_count {
           x.2.cmp(&y.2)
         } else {
           x.1.queue_count.cmp(&y.1.queue_count)
         }
-      )
+      })
       .map(|(i, _, _)| i as u32)
       .ok_or("compute queue not supported".to_string())
   }
@@ -103,20 +98,20 @@ impl AdAshInstance {
         }
         (i, *x, weight)
       })
-      .max_by(|x, y|
+      .max_by(|x, y| {
         if x.1.queue_count == y.1.queue_count {
           x.2.cmp(&y.2)
         } else {
           x.1.queue_count.cmp(&y.1.queue_count)
         }
-      )
+      })
       .map(|(i, _, _)| i as u32)
       .ok_or("transfer queue not supported".to_string())
   }
 
   pub fn select_gpu_queue_families(
     &self,
-    gpu: vk::PhysicalDevice
+    gpu: vk::PhysicalDevice,
   ) -> Result<HashMap<GPUQueueType, u32>, String> {
     let qf_props = self.get_queue_family_props(gpu);
     Ok(HashMap::from([
@@ -129,7 +124,9 @@ impl AdAshInstance {
 
 impl Drop for AdAshInstance {
   fn drop(&mut self) {
-    unsafe { self.inner.destroy_instance(None); }
+    unsafe {
+      self.inner.destroy_instance(None);
+    }
   }
 }
 
@@ -165,8 +162,8 @@ impl AdAshDevice {
       .iter()
       .map(|(q_f_idx, q_count)| {
         vk::DeviceQueueCreateInfo::default()
-        .queue_family_index(*q_f_idx)
-        .queue_priorities(&queue_priorities[0..(*q_count as usize)])
+          .queue_family_index(*q_f_idx)
+          .queue_priorities(&queue_priorities[0..(*q_count as usize)])
       })
       .collect::<Vec<_>>();
     let device_create_info = vk::DeviceCreateInfo::default()
@@ -190,9 +187,9 @@ impl AdAshDevice {
       physical_device: self.gpu,
       debug_settings: Default::default(),
       buffer_device_address: false,
-      allocation_sizes: Default::default()
+      allocation_sizes: Default::default(),
     })
-      .map_err(|e| format!("at creating gpu allocator: {e}"))
+    .map_err(|e| format!("at creating gpu allocator: {e}"))
   }
 }
 

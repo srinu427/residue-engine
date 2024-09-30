@@ -1,6 +1,9 @@
 use std::{collections::HashSet, sync::Arc};
 
-use ash_context::{ash::{khr, vk}, getset, AdAshDevice, AdAshInstance};
+use ash_context::{
+  ash::{khr, vk},
+  getset, AdAshDevice, AdAshInstance,
+};
 use ash_queue_wrappers::{AdCommandBuffer, AdQueue};
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
@@ -15,11 +18,8 @@ pub struct AdSurfaceInstance {
 impl AdSurfaceInstance {
   pub fn new(ash_instance: Arc<AdAshInstance>) -> Self {
     Self {
-      inner: khr::surface::Instance::new(
-        ash_instance.ash_entry(),
-        ash_instance.inner(),
-      ),
-      ash_instance
+      inner: khr::surface::Instance::new(ash_instance.ash_entry(), ash_instance.inner()),
+      ash_instance,
     }
   }
 }
@@ -34,7 +34,7 @@ pub struct AdSurface {
 impl AdSurface {
   pub fn new(
     surface_instance: Arc<AdSurfaceInstance>,
-    window: &(impl HasWindowHandle + HasDisplayHandle)
+    window: &(impl HasWindowHandle + HasDisplayHandle),
   ) -> Result<Self, String> {
     unsafe {
       let vk_surface = ash_window::create_surface(
@@ -98,11 +98,18 @@ impl AdSurface {
         .iter()
         .enumerate()
         .filter_map(|(qf_idx, _qf_props)| {
-          match self
-            .surface_instance
-            .inner
-            .get_physical_device_surface_support(gpu, qf_idx as u32, self.inner) {
-            Ok(supported) => if supported { Some(qf_idx as u32) } else { None },
+          match self.surface_instance.inner.get_physical_device_surface_support(
+            gpu,
+            qf_idx as u32,
+            self.inner,
+          ) {
+            Ok(supported) => {
+              if supported {
+                Some(qf_idx as u32)
+              } else {
+                None
+              }
+            }
             Err(_) => None,
           }
         })
@@ -126,10 +133,8 @@ pub struct AdSwapchainDevice {
 
 impl AdSwapchainDevice {
   pub fn new(ash_device: Arc<AdAshDevice>) -> Self {
-    let swapchain_device = khr::swapchain::Device::new(
-      ash_device.ash_instance().inner(),
-      ash_device.inner()
-    );
+    let swapchain_device =
+      khr::swapchain::Device::new(ash_device.ash_instance().inner(), ash_device.inner());
     Self { inner: swapchain_device, ash_device }
   }
 }
@@ -275,7 +280,7 @@ impl AdSwapchain {
         semaphore.map(|x| x.inner()).unwrap_or(vk::Semaphore::null()),
         fence.map(|x| x.inner()).unwrap_or(vk::Fence::null()),
       ) {
-        Ok((idx, refresh_needed)) => { Ok((idx, refresh_needed)) }
+        Ok((idx, refresh_needed)) => Ok((idx, refresh_needed)),
         Err(e) => {
           if e == vk::Result::ERROR_OUT_OF_DATE_KHR {
             return Ok((0, true));

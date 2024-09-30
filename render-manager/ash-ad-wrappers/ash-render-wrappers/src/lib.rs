@@ -1,6 +1,14 @@
-use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::Arc};
+use std::{
+  collections::HashMap,
+  fs,
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
-use ash_context::{ash::{self, vk}, getset, AdAshDevice};
+use ash_context::{
+  ash::{self, vk},
+  getset, AdAshDevice,
+};
 use ash_data_wrappers::{AdDescriptorSetLayout, AdImageView};
 
 #[derive(getset::Getters, getset::CopyGetters)]
@@ -28,7 +36,7 @@ impl AdRenderPass {
             .attachments(attachments)
             .subpasses(subpasses)
             .dependencies(dependencies),
-          None
+          None,
         )
         .map_err(|e| format!("at vk render pass create: {e}"))?
     };
@@ -54,10 +62,10 @@ pub struct AdShaderModule {
 
 impl AdShaderModule {
   pub fn new(ash_device: Arc<AdAshDevice>, file_path: &Path) -> Result<Self, String> {
-    let mut fr = fs::File::open(file_path)
-      .map_err(|e| format!("error opening file {:?}: {e}", file_path))?;
-    let shader_code = ash::util::read_spv(&mut fr)
-      .map_err(|e| format!("error reading ords from spv file: {e}"))?;
+    let mut fr =
+      fs::File::open(file_path).map_err(|e| format!("error opening file {:?}: {e}", file_path))?;
+    let shader_code =
+      ash::util::read_spv(&mut fr).map_err(|e| format!("error reading ords from spv file: {e}"))?;
     let create_info = vk::ShaderModuleCreateInfo::default().code(&shader_code);
     unsafe {
       ash_device
@@ -85,7 +93,7 @@ impl Drop for AdShaderModule {
         self.ash_device.inner().destroy_shader_module(self.inner, None);
       }
     }
-  } 
+  }
 }
 
 #[derive(getset::Getters, getset::CopyGetters)]
@@ -111,15 +119,14 @@ impl AdPipeline {
       .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
     let pipeline_dyn_state = vk::PipelineDynamicStateCreateInfo::default()
       .dynamic_states(&[vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
-    let pipeline_vp_state = vk::PipelineViewportStateCreateInfo::default()
-      .scissor_count(1)
-      .viewport_count(1);
+    let pipeline_vp_state =
+      vk::PipelineViewportStateCreateInfo::default().scissor_count(1).viewport_count(1);
     let msaa_state = vk::PipelineMultisampleStateCreateInfo::default()
       .sample_shading_enable(false)
       .rasterization_samples(vk::SampleCountFlags::TYPE_1);
     let mut shader_modules = shaders
       .iter()
-      .map(|(_, path)| { AdShaderModule::new(render_pass.ash_device().clone(), path) })
+      .map(|(_, path)| AdShaderModule::new(render_pass.ash_device().clone(), path))
       .collect::<Result<Vec<_>, String>>()?;
     let shader_stages = shaders
       .iter()
@@ -132,12 +139,15 @@ impl AdPipeline {
       })
       .collect::<Vec<_>>();
     let pipeline_layout = unsafe {
-      render_pass.ash_device().inner().create_pipeline_layout(
-        &vk::PipelineLayoutCreateInfo::default()
-          .set_layouts(&set_layouts.iter().map(|x| x.inner()).collect::<Vec<_>>()),
-        None
-      )
-      .map_err(|e| format!("at creating vk pipeline layout: {e}"))?
+      render_pass
+        .ash_device()
+        .inner()
+        .create_pipeline_layout(
+          &vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&set_layouts.iter().map(|x| x.inner()).collect::<Vec<_>>()),
+          None,
+        )
+        .map_err(|e| format!("at creating vk pipeline layout: {e}"))?
     };
 
     let pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
@@ -163,11 +173,7 @@ impl AdPipeline {
     for mut shader_mod in shader_modules.drain(..) {
       shader_mod.manual_destroy();
     }
-    Ok(AdPipeline {
-      render_pass,
-      layout: pipeline_layout,
-      inner: pipeline,
-    })
+    Ok(AdPipeline { render_pass, layout: pipeline_layout, inner: pipeline })
   }
 }
 
@@ -203,22 +209,18 @@ impl AdFrameBuffer {
   ) -> Result<Arc<Self>, String> {
     let vk_framebuffer = unsafe {
       render_pass
-      .ash_device()
-      .inner().create_framebuffer(
-        &vk::FramebufferCreateInfo::default()
-          .render_pass(render_pass.inner())
-          .attachments(
-            &attachments
-              .iter()
-              .map(|x| x.inner())
-              .collect::<Vec<_>>()
-          )
-          .width(resolution.width)
-          .height(resolution.height)
-          .layers(layers),
-        None
-      )
-      .map_err(|e| format!("at creating vk frame buffer: {e}"))?
+        .ash_device()
+        .inner()
+        .create_framebuffer(
+          &vk::FramebufferCreateInfo::default()
+            .render_pass(render_pass.inner())
+            .attachments(&attachments.iter().map(|x| x.inner()).collect::<Vec<_>>())
+            .width(resolution.width)
+            .height(resolution.height)
+            .layers(layers),
+          None,
+        )
+        .map_err(|e| format!("at creating vk frame buffer: {e}"))?
     };
     Ok(Arc::new(Self { render_pass, attachments, resolution, layers, inner: vk_framebuffer }))
   }

@@ -19,7 +19,7 @@ impl AdSemaphore {
         .inner()
         .create_semaphore(&vk::SemaphoreCreateInfo::default().flags(flags), None)
         .map_err(|e| format!("at create vk semaphore: {e}"))
-        .map(|vk_semaphore| { Self { ash_device, inner: vk_semaphore } })
+        .map(|vk_semaphore| Self { ash_device, inner: vk_semaphore })
     }
   }
 }
@@ -27,10 +27,7 @@ impl AdSemaphore {
 impl Drop for AdSemaphore {
   fn drop(&mut self) {
     unsafe {
-      self
-        .ash_device
-        .inner()
-        .destroy_semaphore(self.inner, None);
+      self.ash_device.inner().destroy_semaphore(self.inner, None);
     }
   }
 }
@@ -43,16 +40,13 @@ pub struct AdFence {
 }
 
 impl AdFence {
-  pub fn new(
-    ash_device: Arc<AdAshDevice>,
-    flags: vk::FenceCreateFlags,
-  ) -> Result<Self, String> {
+  pub fn new(ash_device: Arc<AdAshDevice>, flags: vk::FenceCreateFlags) -> Result<Self, String> {
     unsafe {
       ash_device
         .inner()
         .create_fence(&vk::FenceCreateInfo::default().flags(flags), None)
         .map_err(|e| format!("at create vk semaphore: {e}"))
-        .map(|vk_fence| { Self { ash_device, inner: vk_fence } })
+        .map(|vk_fence| Self { ash_device, inner: vk_fence })
     }
   }
 

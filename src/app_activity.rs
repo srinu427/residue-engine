@@ -1,5 +1,5 @@
+use render_manager::{AdAshInstance, AdSurface, AdSurfaceInstance, RenderManager};
 use std::sync::Arc;
-use render_manager::{ AdAshInstance, AdSurface, AdSurfaceInstance, RenderManager};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -26,22 +26,22 @@ impl ApplicationHandler for AppActivity {
         Ok(w) => {
           let surface_instance = Arc::new(AdSurfaceInstance::new(self.ash_instance.clone()));
           let surface = match AdSurface::new(surface_instance, &w) {
-            Ok(x) => {Arc::new(x)}
+            Ok(x) => Arc::new(x),
             Err(e) => {
               eprintln!("error creating surface: {e}");
               event_loop.exit();
-              return
+              return;
             }
           };
           let render_manager =
             match RenderManager::new(Arc::clone(&self.ash_instance.clone()), surface.clone()) {
-            Ok(x) => {x}
-            Err(e) => {
-              eprintln!("error creating window: {e}");
-              event_loop.exit();
-              return
-            }
-          };
+              Ok(x) => x,
+              Err(e) => {
+                eprintln!("error creating window: {e}");
+                event_loop.exit();
+                return;
+              }
+            };
           self.surface = Some(surface);
           self.window = Some(w);
           self.render_manager = Some(render_manager);
@@ -94,13 +94,15 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::ThemeChanged(_) => {}
       WindowEvent::Occluded(_) => {}
       WindowEvent::RedrawRequested => {
-        self.render_manager.as_mut().map(
-          |x| for _ in 0..3 {
+        self.render_manager.as_mut().map(|x| {
+          for _ in 0..3 {
             if let Ok(d_res) = x.draw().inspect_err(|e| eprintln!("{}", e)) {
-              if !d_res {break}
+              if !d_res {
+                break;
+              }
             }
           }
-        );
+        });
       }
     }
   }

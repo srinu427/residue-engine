@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use ash_context::{ash::{self, vk}, getset, AdAshDevice};
+use ash_context::{
+  ash::{self, vk},
+  getset, AdAshDevice,
+};
 use ash_sync_wrappers::{AdFence, AdSemaphore};
 
 #[derive(getset::Getters, getset::CopyGetters)]
@@ -17,22 +20,11 @@ pub struct AdQueue {
 
 impl AdQueue {
   pub fn new(ash_device: Arc<AdAshDevice>, qf_idx: u32, q_idx: u32) -> Self {
-    let vk_queue = unsafe {
-      ash_device.inner().get_device_queue(qf_idx, q_idx)
-    };
-    Self {
-      ash_device,
-      family_index: qf_idx,
-      queue_index: q_idx,
-      inner: vk_queue
-    }
+    let vk_queue = unsafe { ash_device.inner().get_device_queue(qf_idx, q_idx) };
+    Self { ash_device, family_index: qf_idx, queue_index: q_idx, inner: vk_queue }
   }
 
-  pub fn submit(
-    &self,
-    submits: &[vk::SubmitInfo],
-    fence: Option<&AdFence>
-  ) -> Result<(), String> {
+  pub fn submit(&self, submits: &[vk::SubmitInfo], fence: Option<&AdFence>) -> Result<(), String> {
     unsafe {
       self
         .ash_device
@@ -62,10 +54,7 @@ pub struct AdCommandPool {
 }
 
 impl AdCommandPool {
-  pub fn new(
-    queue: Arc<AdQueue>,
-    flags: vk::CommandPoolCreateFlags
-  ) -> Result<Self, String> {
+  pub fn new(queue: Arc<AdQueue>, flags: vk::CommandPoolCreateFlags) -> Result<Self, String> {
     unsafe {
       let cmd_pool = queue
         .ash_device()
@@ -85,11 +74,7 @@ impl AdCommandPool {
 impl Drop for AdCommandPool {
   fn drop(&mut self) {
     unsafe {
-      self
-        .queue
-        .ash_device()
-        .inner()
-        .destroy_command_pool(self.inner, None);
+      self.queue.ash_device().inner().destroy_command_pool(self.inner, None);
     }
   }
 }
@@ -121,10 +106,7 @@ impl AdCommandBuffer {
         )
         .map_err(|e| format!("at creating command buffer: {e}"))?
         .iter()
-        .map(|&x| AdCommandBuffer {
-          cmd_pool: cmd_pool.clone(),
-          inner: x,
-        })
+        .map(|&x| AdCommandBuffer { cmd_pool: cmd_pool.clone(), inner: x })
         .collect::<Vec<_>>()
     };
     Ok(cmd_buffers)
@@ -156,21 +138,19 @@ impl AdCommandBuffer {
     &self,
     signal_semaphores: &[&AdSemaphore],
     wait_semaphores: &[(&AdSemaphore, vk::PipelineStageFlags)],
-    fence: Option<&AdFence>
+    fence: Option<&AdFence>,
   ) -> Result<(), String> {
     unsafe {
       self
         .get_ash_device()
         .queue_submit(
           self.cmd_pool.queue().inner(),
-          &[
-            vk::SubmitInfo::default()
-              .command_buffers(&[self.inner])
-              .signal_semaphores(&signal_semaphores.iter().map(|x| x.inner()).collect::<Vec<_>>())
-              .wait_semaphores(&wait_semaphores.iter().map(|x| x.0.inner()).collect::<Vec<_>>())
-              .wait_dst_stage_mask(&wait_semaphores.iter().map(|x| x.1).collect::<Vec<_>>())
-          ],
-          fence.map_or(vk::Fence::null(), |x| x.inner())
+          &[vk::SubmitInfo::default()
+            .command_buffers(&[self.inner])
+            .signal_semaphores(&signal_semaphores.iter().map(|x| x.inner()).collect::<Vec<_>>())
+            .wait_semaphores(&wait_semaphores.iter().map(|x| x.0.inner()).collect::<Vec<_>>())
+            .wait_dst_stage_mask(&wait_semaphores.iter().map(|x| x.1).collect::<Vec<_>>())],
+          fence.map_or(vk::Fence::null(), |x| x.inner()),
         )
         .map_err(|e| format!("error submitting cmd buffer: {e}"))
     }
@@ -194,17 +174,15 @@ impl AdCommandBuffer {
     subpass_contents: vk::SubpassContents,
   ) {
     unsafe {
-      self
-        .get_ash_device()
-        .cmd_begin_render_pass(
-          self.inner,
-          &vk::RenderPassBeginInfo::default()
-            .render_pass(render_pass)
-            .framebuffer(framebuffer)
-            .render_area(render_area)
-            .clear_values(clear_values),
-          subpass_contents
-        );
+      self.get_ash_device().cmd_begin_render_pass(
+        self.inner,
+        &vk::RenderPassBeginInfo::default()
+          .render_pass(render_pass)
+          .framebuffer(framebuffer)
+          .render_area(render_area)
+          .clear_values(clear_values),
+        subpass_contents,
+      );
     }
   }
 
@@ -216,9 +194,7 @@ impl AdCommandBuffer {
 
   pub fn bind_pipeline(&self, pipeline_bind_point: vk::PipelineBindPoint, pipeline: vk::Pipeline) {
     unsafe {
-      self
-        .get_ash_device()
-        .cmd_bind_pipeline(self.inner, pipeline_bind_point, pipeline);
+      self.get_ash_device().cmd_bind_pipeline(self.inner, pipeline_bind_point, pipeline);
     }
   }
 
@@ -226,19 +202,17 @@ impl AdCommandBuffer {
     &self,
     pipeline_bind_point: vk::PipelineBindPoint,
     layout: vk::PipelineLayout,
-    descriptor_sets: &[vk::DescriptorSet]
+    descriptor_sets: &[vk::DescriptorSet],
   ) {
     unsafe {
-      self
-        .get_ash_device()
-        .cmd_bind_descriptor_sets(
-          self.inner,
-          pipeline_bind_point,
-          layout,
-          0,
-          &descriptor_sets,
-          &[]
-        )
+      self.get_ash_device().cmd_bind_descriptor_sets(
+        self.inner,
+        pipeline_bind_point,
+        layout,
+        0,
+        &descriptor_sets,
+        &[],
+      )
     }
   }
 
@@ -286,12 +260,10 @@ impl AdCommandBuffer {
     &self,
     src_buffer: vk::Buffer,
     dst_buffer: vk::Buffer,
-    regions: &[vk::BufferCopy]
+    regions: &[vk::BufferCopy],
   ) {
     unsafe {
-      self
-        .get_ash_device()
-        .cmd_copy_buffer(self.inner, src_buffer, dst_buffer, regions);
+      self.get_ash_device().cmd_copy_buffer(self.inner, src_buffer, dst_buffer, regions);
     }
   }
 
@@ -339,9 +311,7 @@ impl AdCommandBuffer {
 impl Drop for AdCommandBuffer {
   fn drop(&mut self) {
     unsafe {
-      self
-        .get_ash_device()
-        .free_command_buffers(self.cmd_pool.inner(), &[self.inner]);
+      self.get_ash_device().free_command_buffers(self.cmd_pool.inner(), &[self.inner]);
     }
   }
 }
