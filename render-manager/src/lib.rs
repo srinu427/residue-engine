@@ -147,70 +147,6 @@ impl RenderManager {
 
     let gen_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
 
-    let triangle_out_images = (0..3)
-      .map(|i| {
-        AdImage::new_2d(
-          ash_device.clone(),
-          gen_allocator.clone(),
-          MemoryLocation::GpuOnly,
-          &format!("triangle_out_image_{i}"),
-          vk::Format::R8G8B8A8_UNORM,
-          vk::Extent2D { width: 800, height: 600 },
-          vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
-          vk::SampleCountFlags::TYPE_1,
-          1
-        )
-      })
-      .collect::<Result<Vec<_>, _>>()?;
-
-    render_cmd_buffers[0].begin(vk::CommandBufferUsageFlags::default())?;
-    render_cmd_buffers[0].pipeline_barrier(
-      vk::PipelineStageFlags::TRANSFER,
-      vk::PipelineStageFlags::TRANSFER,
-      vk::DependencyFlags::BY_REGION,
-      &[],
-      &[],
-      &triangle_out_images
-        .iter()
-        .map(|x| {
-          vk::ImageMemoryBarrier::default()
-            .image(x.inner())
-            .subresource_range(
-              vk::ImageSubresourceRange::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .layer_count(1)
-                .base_array_layer(0)
-                .level_count(1)
-                .base_mip_level(0),
-            )
-            .src_queue_family_index(render_cmd_buffers[0].cmd_pool().queue().family_index())
-            .dst_queue_family_index(render_cmd_buffers[0].cmd_pool().queue().family_index())
-            .src_access_mask(vk::AccessFlags::NONE)
-            .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
-            .old_layout(vk::ImageLayout::UNDEFINED)
-            .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        })
-        .collect::<Vec<_>>(),
-    );
-    render_cmd_buffers[0].end()?;
-    render_cmd_buffers[0].submit(&[], &[], Some(&image_acquire_fence))?;
-    image_acquire_fence.wait(999999999)?;
-    image_acquire_fence.reset()?;
-
-    let triangle_out_image_views = (0..3)
-      .map(|i| AdImageView::create_view(
-        triangle_out_images[i].clone(),
-        vk::ImageViewType::TYPE_2D,
-        vk::ImageSubresourceRange {
-          aspect_mask: vk::ImageAspectFlags::COLOR,
-          base_mip_level: 0,
-          level_count: 1,
-          base_array_layer: 0,
-          layer_count: 1
-        }
-      ))
-      .collect::<Result<Vec<_>, _>>()?;
-
     let camera_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
       &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(vec![None]))]
@@ -231,16 +167,10 @@ impl RenderManager {
     };
     triangle_mesh_renderer.add_mesh("triangle_main", &tri_verts_cpu)?;
 
-    let triangle_frame_buffers = (0..3)
-      .map(|i| {
-        AdFrameBuffer::new(
-          triangle_mesh_renderer.render_pass.clone(),
-          vec![triangle_out_image_views[i].clone()],
-          swapchain.resolution(),
-          1
-        )
-      })
-      .collect::<Result<Vec<_>, String>>()?;
+    let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(&render_cmd_buffers[0], gen_allocator.clone(), swapchain_resolution, 3)?;
+    for (i, fb) in triangle_frame_buffers.iter_mut().enumerate() {
+      fb.attachments()[0].image().allocation().lock().map_err(|e| "at getting image mem lock: {e}")?.rename(&format!("triangle_out_image_{i}"))?;
+    }
 
     let vp_mat = glam::Mat4::perspective_rh(1.0, 1.333, 0.1, 1000.0) * glam::Mat4::look_at_rh(
       glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 1.0f32 },
@@ -327,6 +257,13 @@ impl RenderManager {
     }
 
     let current_sc_res = self.swapchain.resolution();
+    let triangle_out_image_res = self.triangle_frame_buffers[0].attachments()[0].image().resolution();
+    if current_sc_res.height != triangle_out_image_res.height || current_sc_res.width != triangle_out_image_res.width {
+      self.triangle_frame_buffers = self.triangle_mesh_renderer.create_framebuffers(&self.render_cmd_buffers[0], self.gen_allocator.clone(), current_sc_res, 3)?;
+      for (i, fb) in self.triangle_frame_buffers.iter_mut().enumerate() {
+        fb.attachments()[0].image().allocation().lock().map_err(|e| "at getting image mem lock: {e}")?.rename(&format!("triangle_out_image_{i}"))?;
+      }
+    }
 
     self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferUsageFlags::default())

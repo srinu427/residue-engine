@@ -2,8 +2,8 @@ use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
 
 use ash_ad_wrappers::{
   ash_context::{ash::vk, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshDevice},
-  ash_data_wrappers::{AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout},
-  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue}, ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass}
+  ash_data_wrappers::{AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdImage, AdImageView},
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue}, ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass}, ash_sync_wrappers::AdFence
 };
 
 #[repr(C)]
@@ -191,5 +191,90 @@ impl TriMeshRenderer {
       cmd_buffer.draw(mesh.indx_len);
     }
     cmd_buffer.end_render_pass();
+  }
+
+  pub fn create_framebuffers(
+    &self,
+    cmd_buffer: &AdCommandBuffer,
+    allocator: Arc<Mutex<Allocator>>,
+    resolution: vk::Extent2D,
+    count: usize
+  ) -> Result<Vec<Arc<AdFrameBuffer>>, String> {
+    let triangle_out_images = (0..count)
+      .map(|i| {
+        AdImage::new_2d(
+          self.ash_device.clone(),
+          allocator.clone(),
+          MemoryLocation::GpuOnly,
+          &format!("triangle_out_image_temp_{i}"),
+          vk::Format::R8G8B8A8_UNORM,
+          resolution,
+          vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+          vk::SampleCountFlags::TYPE_1,
+          1
+        )
+      })
+      .collect::<Result<Vec<_>, _>>()?;
+
+    cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
+    cmd_buffer.pipeline_barrier(
+      vk::PipelineStageFlags::TRANSFER,
+      vk::PipelineStageFlags::TRANSFER,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &triangle_out_images
+        .iter()
+        .map(|x| {
+          vk::ImageMemoryBarrier::default()
+            .image(x.inner())
+            .subresource_range(
+              vk::ImageSubresourceRange::default()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .layer_count(1)
+                .base_array_layer(0)
+                .level_count(1)
+                .base_mip_level(0),
+            )
+            .src_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+            .dst_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+            .src_access_mask(vk::AccessFlags::NONE)
+            .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+            .old_layout(vk::ImageLayout::UNDEFINED)
+            .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        })
+        .collect::<Vec<_>>(),
+    );
+    cmd_buffer.end()?;
+    let fence = AdFence::new(self.ash_device.clone(), vk::FenceCreateFlags::empty())?;
+    cmd_buffer.submit(&[], &[], Some(&fence))?;
+    fence.wait(999999999)?;
+    fence.reset()?;
+
+    let triangle_out_image_views = (0..3)
+      .map(|i| AdImageView::create_view(
+        triangle_out_images[i].clone(),
+        vk::ImageViewType::TYPE_2D,
+        vk::ImageSubresourceRange {
+          aspect_mask: vk::ImageAspectFlags::COLOR,
+          base_mip_level: 0,
+          level_count: 1,
+          base_array_layer: 0,
+          layer_count: 1
+        }
+      ))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    let triangle_frame_buffers = (0..3)
+      .map(|i| {
+        AdFrameBuffer::new(
+          self.render_pass.clone(),
+          vec![triangle_out_image_views[i].clone()],
+          resolution,
+          1
+        )
+      })
+      .collect::<Result<Vec<_>, String>>()?;
+    Ok(triangle_frame_buffers)
   }
 }

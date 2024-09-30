@@ -54,6 +54,20 @@ impl AdAllocation {
       .ok_or(format!("no memory allocated for buffer {}", &self.name))??; // second ? for failure in mapped_slice_mut
     Ok(())
   }
+
+  pub fn rename(&mut self, name: &str) -> Result<(), String> {
+    let curr_allocation = self.inner
+      .as_mut()
+      .ok_or(format!("memory not allocated to rename"))?;
+    self
+      .allocator
+      .lock()
+      .as_mut()
+      .map_err(|e| format!("at getting lock for mem allocator: {e}"))?
+      .rename_allocation(curr_allocation, name)
+      .map_err(|e| format!("at renaming mem allocation: {e}"))?;
+    Ok(())
+  }
 }
 
 impl Drop for AdAllocation {
@@ -129,7 +143,7 @@ impl AdBuffer {
     cmd_buffer: &AdCommandBuffer,
   ) -> Result<AdBuffer, String> {
     let data = Self::get_byte_slice(struct_slice);
-    let mut stage_buffer = Self::new(
+    let stage_buffer = Self::new(
       ash_device.clone(),
       allocator.clone(),
       MemoryLocation::CpuToGpu,
@@ -207,7 +221,8 @@ pub struct AdImage {
   #[getset(get = "pub")]
   name: String,
   ash_device: Arc<AdAshDevice>,
-  allocation: AdAllocation,
+  #[getset(get = "pub")]
+  allocation: Mutex<AdAllocation>,
 }
 
 impl AdImage {
@@ -261,7 +276,7 @@ impl AdImage {
           .height(resolution.height)
           .depth(1),
         format,
-        allocation,
+        allocation: Mutex::new(allocation),
       }))
     }
   }
@@ -272,8 +287,16 @@ impl AdImage {
       vk::Offset3D::default()
         .x(self.resolution.width as i32)
         .y(self.resolution.height as i32)
-        .z(self.resolution.width as i32),
+        .z(self.resolution.depth as i32),
     ]
+  }
+}
+
+impl Drop for AdImage {
+  fn drop(&mut self) {
+    unsafe {
+      self.ash_device.inner().destroy_image(self.inner, None);
+    }
   }
 }
 
@@ -556,18 +579,24 @@ impl AdDescriptorSet {
 
   pub fn set_binding(&mut self, binding_id: u32, binding: AdDescriptorBinding) {
     let (buffers_info, images_info) = binding.get_descriptor_infos();
+    let mut write_info = vk::WriteDescriptorSet::default()
+      .dst_set(self.inner)
+      .dst_binding(binding_id)
+      .descriptor_type(binding.get_descriptor_type())
+      .descriptor_count(binding.get_descriptor_count());
+    if buffers_info.len() > 0 {
+      write_info = write_info.buffer_info(&buffers_info);
+    }
+    if images_info.len() > 0 {
+      write_info = write_info.image_info(&images_info);
+    }
     unsafe {
       self
         .desc_pool
         .ash_device
         .inner()
         .update_descriptor_sets(
-          &[
-            vk::WriteDescriptorSet::default()
-              .dst_set(self.inner)
-              .dst_binding(binding_id)
-              .buffer_info(&buffers_info)
-              .image_info(&images_info)],
+          &[write_info],
           &[]
         );
     }
@@ -578,11 +607,13 @@ impl AdDescriptorSet {
 impl Drop for AdDescriptorSet {
   fn drop(&mut self) {
     unsafe {
-      let _ = self
-        .desc_pool
-        .ash_device
-        .inner()
-        .free_descriptor_sets(self.desc_pool.inner, &[self.inner]);
+      if self.desc_pool.free_supported(){
+        let _ = self
+          .desc_pool
+          .ash_device
+          .inner()
+          .free_descriptor_sets(self.desc_pool.inner, &[self.inner]);
+      }
     }
   }
 }
