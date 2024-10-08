@@ -12,7 +12,7 @@ use ash_ad_wrappers::{
   },
   ash_data_wrappers::{
     AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout,
-    AdImage, AdImageView,
+    AdImage, AdImageView, AdSampler,
   },
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
   ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass},
@@ -37,13 +37,21 @@ pub struct TriMesh {
   dset: AdDescriptorSet,
 }
 
+pub struct TriRenderable {
+  mesh: TriMesh,
+  texture: Arc<AdDescriptorSet>,
+}
+
 pub struct TriMeshRenderer {
-  meshes: Vec<TriMesh>,
+  renderables: Vec<TriRenderable>,
+  textures: HashMap<String, Arc<AdDescriptorSet>>,
   mesh_allocator: Arc<Mutex<Allocator>>,
   cmd_pool: Arc<AdCommandPool>,
   pipeline: AdPipeline,
   pub render_pass: Arc<AdRenderPass>,
+  tex_sampler: Arc<AdSampler>,
   vert_dset_layout: Arc<AdDescriptorSetLayout>,
+  tex_dset_layout: Arc<AdDescriptorSetLayout>,
   dset_pool: Arc<AdDescriptorPool>,
   ash_device: Arc<AdAshDevice>,
 }
@@ -64,11 +72,19 @@ impl TriMeshRenderer {
         (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
       ],
     )?);
+    let tex_dset_layout = Arc::new(AdDescriptorSetLayout::new(
+      ash_device.clone(),
+      &[(vk::ShaderStageFlags::FRAGMENT, AdDescriptorBinding::Sampler2D(vec![None]))],
+    )?);
+    let tex_sampler = Arc::new(AdSampler::new(ash_device.clone())?);
     let dset_pool = Arc::new(AdDescriptorPool::new(
       ash_device.clone(),
       vk::DescriptorPoolCreateFlags::default(),
       2000,
-      &[vk::DescriptorPoolSize { descriptor_count: 2000, ty: vk::DescriptorType::STORAGE_BUFFER }],
+      &[
+        vk::DescriptorPoolSize { descriptor_count: 2000, ty: vk::DescriptorType::STORAGE_BUFFER },
+        vk::DescriptorPoolSize { descriptor_count: 2000, ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER },
+      ],
     )?);
     let render_pass = Arc::new(AdRenderPass::new(
       ash_device.clone(),
@@ -115,7 +131,7 @@ impl TriMeshRenderer {
         (vk::ShaderStageFlags::VERTEX, PathBuf::from("render-manager/shaders/triangle.vert.spv")),
         (vk::ShaderStageFlags::FRAGMENT, PathBuf::from("render-manager/shaders/triangle.frag.spv")),
       ]),
-      &[&vert_dset_layout, cam_dset_layout],
+      &[&vert_dset_layout, cam_dset_layout, &tex_dset_layout],
       triangle_rasterizer_info,
       &vk::PipelineColorBlendStateCreateInfo::default().attachments(&[
         vk::PipelineColorBlendAttachmentState::default()
@@ -125,18 +141,53 @@ impl TriMeshRenderer {
     )?;
 
     Ok(Self {
-      meshes: vec![],
+      renderables: vec![],
+      textures: HashMap::new(),
       mesh_allocator,
       render_pass,
       pipeline,
+      tex_sampler,
       vert_dset_layout,
+      tex_dset_layout,
       dset_pool,
       ash_device,
       cmd_pool,
     })
   }
 
-  pub fn add_mesh(&mut self, name: &str, cpu_mesh: &TriMeshCPU) -> Result<(), String> {
+  pub fn add_texture(&mut self, name: &str, path: &str, replace: bool) -> Result<Arc<AdDescriptorSet>, String> {
+    if self.textures.contains_key(name) {
+      return self.textures.get(name).ok_or("can't get tex from memory".to_string()).map(|x| x.clone());
+    }
+    let cmd_buffer = AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
+    let albedo = AdImage::new_2d_from_file(
+      self.ash_device.clone(),
+      self.mesh_allocator.clone(),
+      MemoryLocation::GpuOnly,
+      name,
+      vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+      path,
+      &cmd_buffer,
+      vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+    )?;
+    let albedo_local = AdImageView::create_view(
+      albedo,
+      vk::ImageViewType::TYPE_2D,
+      vk::ImageSubresourceRange::default()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .base_array_layer(0)
+        .layer_count(1)
+        .base_mip_level(0)
+        .level_count(1)
+    )?;
+    let mut dset = AdDescriptorSet::new(self.dset_pool.clone(), &[&self.tex_dset_layout])?.remove(0);
+    dset.set_binding(0, AdDescriptorBinding::Sampler2D(vec![Some((albedo_local, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL, self.tex_sampler.clone()))]));
+    let dset = Arc::new(dset);
+    self.textures.insert(name.to_string(), dset.clone());
+    Ok(dset)
+  }
+
+  pub fn add_renderable(&mut self, name: &str, cpu_mesh: &TriMeshCPU, texture: (&str, &str)) -> Result<(), String> {
     let tmp_cmd_buffer =
       AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let vert_buffer = Arc::new(AdBuffer::from_data(
@@ -168,7 +219,10 @@ impl TriMeshRenderer {
       AdDescriptorSet::new(self.dset_pool.clone(), &[&self.vert_dset_layout])?.remove(0);
     dset.set_binding(0, AdDescriptorBinding::StorageBuffer(vec![Some(vert_buffer)]));
     dset.set_binding(1, AdDescriptorBinding::StorageBuffer(vec![Some(indx_buffer)]));
-    self.meshes.push(TriMesh { indx_len: indices.len() as u32, dset });
+
+    let texture = self.add_texture(texture.0, texture.1, false)?;
+
+    self.renderables.push( TriRenderable { mesh: TriMesh { indx_len: indices.len() as u32, dset }, texture});
     Ok(())
   }
 
@@ -200,13 +254,13 @@ impl TriMeshRenderer {
       extent: frame_buffer.resolution(),
     }]);
 
-    for mesh in self.meshes.iter() {
+    for renderable in self.renderables.iter() {
       cmd_buffer.bind_descriptor_sets(
         vk::PipelineBindPoint::GRAPHICS,
         self.pipeline.layout(),
-        &[mesh.dset.inner(), camera_dset],
+        &[renderable.mesh.dset.inner(), camera_dset, renderable.texture.inner()],
       );
-      cmd_buffer.draw(mesh.indx_len);
+      cmd_buffer.draw(renderable.mesh.indx_len);
     }
     cmd_buffer.end_render_pass();
   }

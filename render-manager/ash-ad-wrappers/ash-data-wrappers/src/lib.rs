@@ -276,6 +276,103 @@ impl AdImage {
     }
   }
 
+  pub fn new_2d_from_file(
+    ash_device: Arc<AdAshDevice>,
+    allocator: Arc<Mutex<Allocator>>,
+    mem_location: MemoryLocation,
+    name: &str,
+    usage: vk::ImageUsageFlags,
+    file_path: &str,
+    cmd_buffer: &AdCommandBuffer,
+    init_layout: vk::ImageLayout,
+  ) -> Result<Arc<Self>, String> {
+    let image_info = image::open(file_path).map_err(|e| format!("at loading file: {e}"))?;
+    let image_rgba8 = image_info.to_rgba8();
+
+    let stage_buffer = AdBuffer::new(
+      ash_device.clone(),
+      allocator.clone(),
+      MemoryLocation::CpuToGpu,
+      &format!("{name}_stage_buffer"),
+      vk::BufferCreateFlags::default(),
+      image_rgba8.len() as vk::DeviceSize,
+      vk::BufferUsageFlags::TRANSFER_SRC,
+    )
+      .map_err(|e| format!("at stage buffer create:: {e}"))?;
+    stage_buffer.write_data(0, &image_rgba8)?;
+
+    let image_2d = AdImage::new_2d(
+      ash_device.clone(),
+      allocator,
+      mem_location,
+      name,
+      vk::Format::R8G8B8_SRGB,
+      vk::Extent2D::default().width(image_info.width()).height(image_info.height()),
+      vk::ImageUsageFlags::TRANSFER_DST | usage,
+      vk::SampleCountFlags::TYPE_1,
+      1,
+    )?;
+
+    cmd_buffer.begin(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)?;
+
+    cmd_buffer.pipeline_barrier(
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &[
+        vk::ImageMemoryBarrier::default()
+          .image(image_2d.inner)
+          .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_array_layer(0).layer_count(1).base_mip_level(0).level_count(1))
+          .src_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .dst_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .old_layout(vk::ImageLayout::UNDEFINED)
+          .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+      ]
+    );
+    cmd_buffer.copy_buffer_to_image(
+      stage_buffer.inner(),
+      image_2d.inner,
+      vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+      &[vk::BufferImageCopy::default()
+        .image_offset(vk::Offset3D::default())
+        .image_extent(image_2d.resolution())
+        .image_subresource(vk::ImageSubresourceLayers::default()
+          .aspect_mask(vk::ImageAspectFlags::COLOR)
+          .base_array_layer(0)
+          .layer_count(1)
+          .mip_level(0)
+        )]
+    );
+    cmd_buffer.pipeline_barrier(
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &[
+        vk::ImageMemoryBarrier::default()
+          .image(image_2d.inner)
+          .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_array_layer(0).layer_count(1).base_mip_level(0).level_count(1))
+          .src_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .dst_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+          .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .new_layout(init_layout)
+      ]
+    );
+
+    cmd_buffer.end()?;
+    let fence = AdFence::new(ash_device.clone(), vk::FenceCreateFlags::empty())?;
+    cmd_buffer.submit(&[], &[], Some(&fence))?;
+    fence.wait(999999999)?;
+    Ok(image_2d)
+  }
+
   pub fn full_range_offset_3d(&self) -> [vk::Offset3D; 2] {
     [
       vk::Offset3D::default(),
@@ -361,11 +458,39 @@ impl Drop for AdImageView {
   }
 }
 
+#[derive(getset::Getters, getset::CopyGetters)]
+pub struct AdSampler {
+  ash_device: Arc<AdAshDevice>,
+  #[getset(get_copy = "pub")]
+  inner: vk::Sampler,
+}
+
+impl AdSampler {
+  pub fn new(ash_device: Arc<AdAshDevice>) -> Result<Self, String> {
+    unsafe {
+      let vk_sampler = ash_device
+        .inner()
+        .create_sampler(&vk::SamplerCreateInfo::default(), None)
+        .map_err(|e| format!("at vk sampler create: {e}"))?;
+      Ok(Self { ash_device, inner: vk_sampler })
+    }
+  }
+}
+
+impl Drop for AdSampler {
+  fn drop(&mut self) {
+    unsafe {
+      self.ash_device.inner().destroy_sampler(self.inner, None);
+    }
+  }
+}
+
 #[derive(Clone)]
 pub enum AdDescriptorBinding {
   StorageBuffer(Vec<Option<Arc<AdBuffer>>>),
   UniformBuffer(Vec<Option<Arc<AdBuffer>>>),
-  Image2D(Vec<Option<Arc<(AdImageView, vk::ImageLayout)>>>),
+  Image2D(Vec<Option<(Arc<AdImageView>, vk::ImageLayout)>>),
+  Sampler2D(Vec<Option<(Arc<AdImageView>, vk::ImageLayout, Arc<AdSampler>)>>),
 }
 
 impl AdDescriptorBinding {
@@ -374,6 +499,7 @@ impl AdDescriptorBinding {
       Self::StorageBuffer(_) => vk::DescriptorType::STORAGE_BUFFER,
       Self::UniformBuffer(_) => vk::DescriptorType::UNIFORM_BUFFER,
       Self::Image2D(_) => vk::DescriptorType::SAMPLED_IMAGE,
+      Self::Sampler2D(_) => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
     }
   }
 
@@ -382,6 +508,7 @@ impl AdDescriptorBinding {
       Self::StorageBuffer(x) => x.len() as u32,
       Self::UniformBuffer(x) => x.len() as u32,
       Self::Image2D(x) => x.len() as u32,
+      Self::Sampler2D(x) => x.len() as u32,
     }
   }
 
@@ -422,6 +549,17 @@ impl AdDescriptorBinding {
           .collect::<Vec<_>>();
         (vec![], image_infos)
       }
+      AdDescriptorBinding::Sampler2D(v) => {
+        let image_infos = v
+          .iter()
+          .filter_map(|x| {
+            x.as_ref().map(|id| {
+              vk::DescriptorImageInfo::default().sampler(id.2.inner()).image_view(id.0.inner()).image_layout(id.1)
+            })
+          })
+          .collect::<Vec<_>>();
+        (vec![], image_infos)
+      }
     }
   }
 
@@ -430,6 +568,7 @@ impl AdDescriptorBinding {
       Self::StorageBuffer(x) => Self::StorageBuffer(vec![None; x.len()]),
       Self::UniformBuffer(x) => Self::UniformBuffer(vec![None; x.len()]),
       Self::Image2D(x) => Self::Image2D(vec![None; x.len()]),
+      Self::Sampler2D(x) => Self::Sampler2D(vec![None; x.len()]),
     }
   }
 }

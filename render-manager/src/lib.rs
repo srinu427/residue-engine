@@ -168,7 +168,7 @@ impl RenderManager {
       ],
       triangles: vec![[0, 1, 2]],
     };
-    triangle_mesh_renderer.add_mesh("triangle_main", &tri_verts_cpu)?;
+    triangle_mesh_renderer.add_renderable("triangle_main", &tri_verts_cpu, ("bg_tex", "./background.png"))?;
 
     let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(
       &render_cmd_buffers[0],

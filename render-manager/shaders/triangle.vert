@@ -2,6 +2,8 @@
 // #extension GL_KHR_vulkan_glsl: enable
 // #extension GL_EXT_debug_printf : enable
 
+layout (location = 0) out vec4 outUV;
+
 struct VertexData {
   vec4 pos;
   vec4 uv;
@@ -21,7 +23,6 @@ layout(std140, set = 1, binding = 0) uniform CamWrap { CamData data; } camera_bu
 vec4 invert_y_axis(vec4 v) {
   return vec4(v.x, -v.y, v.z, v.w);
 }
-
 
 void main() {
   uint vert_id = index_buffer.inds[gl_VertexIndex];

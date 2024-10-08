@@ -7,4 +7,4 @@ edition = "2021"
 ash-context = {path = "../ash-context"}
 ash-queue-wrappers = {path = "../ash-queue-wrappers"}
 ash-sync-wrappers = {path = "../ash-sync-wrappers"}
-
+image = "0.25.2"
