@@ -306,7 +306,7 @@ impl AdImage {
       allocator,
       mem_location,
       name,
-      vk::Format::R8G8B8_SRGB,
+      vk::Format::R8G8B8A8_SRGB,
       vk::Extent2D::default().width(image_info.width()).height(image_info.height()),
       vk::ImageUsageFlags::TRANSFER_DST | usage,
       vk::SampleCountFlags::TYPE_1,
