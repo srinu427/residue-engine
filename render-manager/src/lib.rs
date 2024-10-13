@@ -17,7 +17,7 @@ use ash_ad_wrappers::{
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
-use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex, glam};
+use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, glam};
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
@@ -160,14 +160,7 @@ impl RenderManager {
       queues[&GPUQueueType::Transfer].clone(),
       &camera_dset_layout,
     )?;
-    let tri_verts_cpu = TriMeshCPU {
-      verts: vec![
-        TriMeshVertex { pos: glam::vec4(0.0, -0.5, 0.0, 1.0), normal: glam::vec4(0.0, 0.0, -1.0, 0.0), uv: glam::vec4(0.0, 0.0, 0.0, 0.0) },
-        TriMeshVertex { pos: glam::vec4(0.5, 0.5, 0.0, 1.0), normal: glam::vec4(0.0, 0.0, -1.0, 0.0), uv: glam::vec4(0.0, 1.0, 0.0, 0.0) },
-        TriMeshVertex { pos: glam::vec4(-0.5, 0.5, 0.0, 1.0), normal: glam::vec4(0.0, 0.0, -1.0, 0.0), uv: glam::vec4(1.0, 1.0, 0.0, 0.0) },
-      ],
-      triangles: vec![[0, 1, 2]],
-    };
+    let tri_verts_cpu = TriMeshCPU::make_rect(glam::vec3(0.0, 0.0, 0.0), glam::vec3(1.0, 0.0, 0.0), glam::vec3(0.0, 1.0, 0.0));
     triangle_mesh_renderer.add_renderable("triangle_main", &tri_verts_cpu, ("bg_tex", "./background.png"))?;
 
     let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(
