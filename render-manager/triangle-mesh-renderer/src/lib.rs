@@ -19,10 +19,18 @@ use ash_ad_wrappers::{
   ash_sync_wrappers::AdFence,
 };
 
+pub use glam;
+
+pub fn g_vec4_from_vec3(v: glam::Vec3, w: f32) -> glam::Vec4 {
+  glam::vec4(v.x, v.y, v.z, w)
+}
+
+
 #[repr(C)]
 pub struct TriMeshVertex {
-  pub pos: [f32; 4],
-  pub uv: [f32; 4],
+  pub pos: glam::Vec4,
+  pub normal: glam::Vec4,
+  pub uv: glam::Vec4,
 }
 
 pub struct TriMeshCPU {
@@ -30,7 +38,46 @@ pub struct TriMeshCPU {
   pub triangles: Vec<[u32; 3]>,
 }
 
-impl TriMeshCPU {}
+impl TriMeshCPU {
+  pub fn merge(&mut self, mut other: Self) {
+    let curr_vert_len = self.verts.len() as u32;
+    for t in other.triangles.iter_mut() {
+      for idx in t {
+        *idx += curr_vert_len;
+      }
+    }
+    self.verts.append(&mut other.verts);
+    self.triangles.append(&mut other.triangles);
+  }
+
+  pub fn make_rect(center: glam::Vec3, tangent: glam::Vec3, bitangent: glam::Vec3) -> Self {
+    let normal = tangent.cross(bitangent).normalize();
+    let verts = vec![
+      TriMeshVertex {
+        pos: g_vec4_from_vec3(center + tangent/2.0 - bitangent/2.0, 1.0),
+        normal: g_vec4_from_vec3(normal, 1.0),
+        uv: glam::vec4(0.0, 0.0, 0.0, 0.0)
+      },
+      TriMeshVertex {
+        pos: g_vec4_from_vec3(center - tangent/2.0 - bitangent/2.0, 1.0),
+        normal: g_vec4_from_vec3(normal, 1.0),
+        uv: glam::vec4(0.0, bitangent.length(), 0.0, 0.0)
+      },
+      TriMeshVertex {
+        pos: g_vec4_from_vec3(center - tangent/2.0 + bitangent/2.0, 1.0),
+        normal: g_vec4_from_vec3(normal, 1.0),
+        uv: glam::vec4(tangent.length(), bitangent.length(), 0.0, 0.0)
+      },
+      TriMeshVertex {
+        pos: g_vec4_from_vec3(center + tangent/2.0 + bitangent/2.0, 1.0),
+        normal: g_vec4_from_vec3(normal, 1.0),
+        uv: glam::vec4(tangent.length(), 0.0, 0.0, 0.0)
+      },
+    ];
+    let triangles = vec![[0, 1, 2], [2, 3, 0]];
+    Self { verts, triangles }
+  }
+}
 
 pub struct TriMesh {
   indx_len: u32,
@@ -155,7 +202,7 @@ impl TriMeshRenderer {
     })
   }
 
-  pub fn add_texture(&mut self, name: &str, path: &str, replace: bool) -> Result<Arc<AdDescriptorSet>, String> {
+  pub fn add_texture(&mut self, name: &str, path: &str, _replace: bool) -> Result<Arc<AdDescriptorSet>, String> {
     if self.textures.contains_key(name) {
       return self.textures.get(name).ok_or("can't get tex from memory".to_string()).map(|x| x.clone());
     }

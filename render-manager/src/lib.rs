@@ -17,7 +17,7 @@ use ash_ad_wrappers::{
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
-use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex};
+use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, TriMeshVertex, glam};
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
@@ -162,9 +162,9 @@ impl RenderManager {
     )?;
     let tri_verts_cpu = TriMeshCPU {
       verts: vec![
-        TriMeshVertex { pos: [0.0f32, -0.5f32, 0.0f32, 1.0f32], uv: [0.0, 0.0, 0.0, 0.0] },
-        TriMeshVertex { pos: [0.5f32, 0.5f32, 0.0f32, 1.0f32], uv: [0.0, 1.0, 0.0, 0.0] },
-        TriMeshVertex { pos: [-0.5f32, 0.5f32, 0.0f32, 1.0f32], uv: [1.0, 1.0, 0.0, 0.0] },
+        TriMeshVertex { pos: glam::vec4(0.0, -0.5, 0.0, 1.0), normal: glam::vec4(0.0, 0.0, -1.0, 0.0), uv: glam::vec4(0.0, 0.0, 0.0, 0.0) },
+        TriMeshVertex { pos: glam::vec4(0.5, 0.5, 0.0, 1.0), normal: glam::vec4(0.0, 0.0, -1.0, 0.0), uv: glam::vec4(0.0, 1.0, 0.0, 0.0) },
+        TriMeshVertex { pos: glam::vec4(-0.5, 0.5, 0.0, 1.0), normal: glam::vec4(0.0, 0.0, -1.0, 0.0), uv: glam::vec4(1.0, 1.0, 0.0, 0.0) },
       ],
       triangles: vec![[0, 1, 2]],
     };
