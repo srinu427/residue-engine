@@ -39,7 +39,7 @@ pub struct TriMeshCPU {
 }
 
 impl TriMeshCPU {
-  pub fn merge(&mut self, mut other: Self) {
+  pub fn merge(mut self, mut other: Self) -> Self {
     let curr_vert_len = self.verts.len() as u32;
     for t in other.triangles.iter_mut() {
       for idx in t {
@@ -48,34 +48,47 @@ impl TriMeshCPU {
     }
     self.verts.append(&mut other.verts);
     self.triangles.append(&mut other.triangles);
+    self
   }
 
   pub fn make_rect(center: glam::Vec3, tangent: glam::Vec3, bitangent: glam::Vec3) -> Self {
     let normal = tangent.cross(bitangent).normalize();
     let verts = vec![
       TriMeshVertex {
-        pos: g_vec4_from_vec3(center + tangent/2.0 - bitangent/2.0, 1.0),
+        pos: g_vec4_from_vec3(center - tangent/2.0 + bitangent/2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
         uv: glam::vec4(0.0, 0.0, 0.0, 0.0)
       },
       TriMeshVertex {
         pos: g_vec4_from_vec3(center - tangent/2.0 - bitangent/2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(0.0, bitangent.length(), 0.0, 0.0)
+        uv: glam::vec4(0.0, bitangent.length() * 2.0, 0.0, 0.0)
       },
       TriMeshVertex {
-        pos: g_vec4_from_vec3(center - tangent/2.0 + bitangent/2.0, 1.0),
+        pos: g_vec4_from_vec3(center + tangent/2.0 - bitangent/2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(tangent.length(), bitangent.length(), 0.0, 0.0)
+        uv: glam::vec4(tangent.length() * 2.0, bitangent.length() * 2.0, 0.0, 0.0)
       },
       TriMeshVertex {
         pos: g_vec4_from_vec3(center + tangent/2.0 + bitangent/2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(tangent.length(), 0.0, 0.0, 0.0)
+        uv: glam::vec4(tangent.length() * 2.0, 0.0, 0.0, 0.0)
       },
     ];
     let triangles = vec![[0, 1, 2], [2, 3, 0]];
     Self { verts, triangles }
+  }
+
+  pub fn make_cuboid(center: glam::Vec3, axis_x: glam::Vec3, axis_y: glam::Vec3, z_len: f32) -> Self {
+    let axis_z = axis_x.cross(axis_y).normalize() * z_len;
+    Self { verts: vec![], triangles: vec![] }
+      .merge(Self::make_rect(center + (axis_x / 2.0), axis_y, axis_z))
+      .merge(Self::make_rect(center - (axis_x / 2.0), axis_z, axis_y))
+      .merge(Self::make_rect(center + (axis_y / 2.0), axis_z, axis_x))
+      .merge(Self::make_rect(center - (axis_y / 2.0), axis_x, axis_z))
+      .merge(Self::make_rect(center + (axis_z / 2.0), axis_x, axis_y))
+      .merge(Self::make_rect(center - (axis_z / 2.0), axis_y, axis_x))
+    
   }
 }
 
@@ -166,7 +179,7 @@ impl TriMeshRenderer {
     )?);
 
     let triangle_rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
-      .cull_mode(vk::CullModeFlags::NONE)
+      .cull_mode(vk::CullModeFlags::BACK)
       .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
       .polygon_mode(vk::PolygonMode::FILL)
       .line_width(1.0);

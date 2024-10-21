@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 ash-context = {path = "../ash-context"}
 ash-data-wrappers = {path = "../ash-data-wrappers"}
+spirv_cross = {version = "0.23.1", features = ["glsl"]}

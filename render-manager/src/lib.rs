@@ -160,7 +160,12 @@ impl RenderManager {
       queues[&GPUQueueType::Transfer].clone(),
       &camera_dset_layout,
     )?;
-    let tri_verts_cpu = TriMeshCPU::make_rect(glam::vec3(0.0, 0.0, 0.0), glam::vec3(1.0, 0.0, 0.0), glam::vec3(0.0, 1.0, 0.0));
+    let tri_verts_cpu = TriMeshCPU::make_cuboid(
+      glam::vec3(0.0, 0.0, 0.0),
+      glam::vec3(1.0, 0.0, 0.0),
+      glam::vec3(0.0, 1.0, 0.0),
+      1.0,
+    );
     triangle_mesh_renderer.add_renderable("triangle_main", &tri_verts_cpu, ("bg_tex", "./background.png"))?;
 
     let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(
@@ -178,9 +183,9 @@ impl RenderManager {
         .rename(&format!("triangle_out_image_{i}"))?;
     }
 
-    let vp_mat = glam::Mat4::perspective_rh(1.0, 1.333, 0.1, 1000.0)
+    let vp_mat = glam::Mat4::perspective_rh(1.5, 1.333, 1.0, 1000.0)
       * glam::Mat4::look_at_rh(
-        glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 1.0f32 },
+        glam::Vec3 { x: 2.0f32, y: 2.0f32, z: 2.0f32 },
         glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 0.0f32 },
         glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
       );

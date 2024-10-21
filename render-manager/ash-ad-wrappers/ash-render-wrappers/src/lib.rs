@@ -175,6 +175,32 @@ impl AdPipeline {
     }
     Ok(AdPipeline { render_pass, layout: pipeline_layout, inner: pipeline })
   }
+
+  // pub fn make_dset_layouts_for_shaders(shaders: HashMap<vk::ShaderStageFlags, &Path>)
+  // -> Result<Vec<AdDescriptorSetLayout>, String> {
+  //   let mut set_binding_info: HashMap<u32, _> = HashMap::new();
+  //   for (stage, shader_file) in shaders.iter() {
+  //     let mut fr = fs::File::open(*shader_file).map_err(|e| format!("at loading shader: {e}"))?;
+  //     let shader_code = ash::util::read_spv(&mut fr)
+  //       .map_err(|e| format!("at reading shaders as words: {e}"))?;
+  //     let shader_mod = spirv_cross::spirv::Module::from_words(&shader_code);
+  //     let shader_ast = spirv_cross::spirv::Ast::<spirv_cross::glsl::Target>::parse(&shader_mod)
+  //       .map_err(|e| format!("at making shader ast: {e}"))?;
+  //     let shader_resources = shader_ast.get_shader_resources()
+  //       .map_err(|e| format!("at getting shader resources: {e}"))?;
+  //     for ub_resource in shader_resources.uniform_buffers.iter() {
+  //       let set = shader_ast
+  //         .get_decoration(ub_resource.id, spirv_cross::spirv::Decoration::DescriptorSet)
+  //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
+  //       let binding = shader_ast
+  //         .get_decoration(ub_resource.id, spirv_cross::spirv::Decoration::Binding)
+  //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
+  //       if set_binding_info.contains_key(&set) {
+  //         set_binding_info.insert(set, HashMap::new());
+  //       }
+  //     }
+  //   }
+  // }
 }
 
 impl Drop for AdPipeline {
