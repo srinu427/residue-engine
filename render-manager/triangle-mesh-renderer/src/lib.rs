@@ -102,6 +102,9 @@ pub struct TriRenderable {
   texture: Arc<AdDescriptorSet>,
 }
 
+static VERT_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle.vert.spv");
+static FRAG_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle.frag.spv");
+
 pub struct TriMeshRenderer {
   renderables: Vec<TriRenderable>,
   textures: HashMap<String, Arc<AdDescriptorSet>>,
@@ -188,8 +191,8 @@ impl TriMeshRenderer {
       render_pass.clone(),
       0,
       HashMap::from([
-        (vk::ShaderStageFlags::VERTEX, PathBuf::from("render-manager/shaders/triangle.vert.spv")),
-        (vk::ShaderStageFlags::FRAGMENT, PathBuf::from("render-manager/shaders/triangle.frag.spv")),
+        (vk::ShaderStageFlags::VERTEX, VERT_SHADER_CODE),
+        (vk::ShaderStageFlags::FRAGMENT, FRAG_SHADER_CODE),
       ]),
       &[&vert_dset_layout, cam_dset_layout, &tex_dset_layout],
       triangle_rasterizer_info,

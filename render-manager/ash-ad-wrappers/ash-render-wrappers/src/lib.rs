@@ -1,8 +1,5 @@
 use std::{
-  collections::HashMap,
-  fs,
-  path::{Path, PathBuf},
-  sync::Arc,
+  collections::HashMap, fs, path::{Path, PathBuf}, slice::from_raw_parts, sync::Arc
 };
 
 use ash_context::{
@@ -61,7 +58,24 @@ pub struct AdShaderModule {
 }
 
 impl AdShaderModule {
-  pub fn new(ash_device: Arc<AdAshDevice>, file_path: &Path) -> Result<Self, String> {
+  pub fn from_bytes(ash_device: Arc<AdAshDevice>, spv_bytes: &[u8]) -> Result<Self, String> {
+    if spv_bytes.len() % 4 != 0 {
+      return Err("spv data should be multiple of 4 bytes".to_string());
+    }
+    let shader_code = unsafe {
+      from_raw_parts(spv_bytes.as_ptr() as *const u32, spv_bytes.len() / 4)
+    };
+    let create_info = vk::ShaderModuleCreateInfo::default().code(&shader_code);
+    unsafe {
+      ash_device
+        .inner()
+        .create_shader_module(&create_info, None)
+        .map_err(|e| format!("error creating vk shader module: {e}"))
+        .map(|vk_shader| AdShaderModule { ash_device, dropped: false, inner: vk_shader })
+    }
+  }
+
+  pub fn from_file(ash_device: Arc<AdAshDevice>, file_path: &Path) -> Result<Self, String> {
     let mut fr =
       fs::File::open(file_path).map_err(|e| format!("error opening file {:?}: {e}", file_path))?;
     let shader_code =
@@ -109,7 +123,7 @@ impl AdPipeline {
   pub fn new(
     render_pass: Arc<AdRenderPass>,
     subpass_id: u32,
-    shaders: HashMap<vk::ShaderStageFlags, PathBuf>,
+    shaders: HashMap<vk::ShaderStageFlags, &[u8]>,
     set_layouts: &[&AdDescriptorSetLayout],
     rasterizer_config: vk::PipelineRasterizationStateCreateInfo,
     blend_info: &vk::PipelineColorBlendStateCreateInfo,
@@ -126,7 +140,7 @@ impl AdPipeline {
       .rasterization_samples(vk::SampleCountFlags::TYPE_1);
     let mut shader_modules = shaders
       .iter()
-      .map(|(_, path)| AdShaderModule::new(render_pass.ash_device().clone(), path))
+      .map(|(_, path)| AdShaderModule::from_bytes(render_pass.ash_device().clone(), path))
       .collect::<Result<Vec<_>, String>>()?;
     let shader_stages = shaders
       .iter()
@@ -188,6 +202,8 @@ impl AdPipeline {
   //       .map_err(|e| format!("at making shader ast: {e}"))?;
   //     let shader_resources = shader_ast.get_shader_resources()
   //       .map_err(|e| format!("at getting shader resources: {e}"))?;
+
+  //     // Uniform Buffers
   //     for ub_resource in shader_resources.uniform_buffers.iter() {
   //       let set = shader_ast
   //         .get_decoration(ub_resource.id, spirv_cross::spirv::Decoration::DescriptorSet)
@@ -195,11 +211,45 @@ impl AdPipeline {
   //       let binding = shader_ast
   //         .get_decoration(ub_resource.id, spirv_cross::spirv::Decoration::Binding)
   //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
-  //       if set_binding_info.contains_key(&set) {
-  //         set_binding_info.insert(set, HashMap::new());
-  //       }
+  //       let binding_info = set_binding_info
+  //         .entry(set)
+  //         .or_insert(HashMap::new())
+  //         .entry(binding)
+  //         .or_insert((*stage, vk::DescriptorType::UNIFORM_BUFFER));
+  //       binding_info.0 = binding_info.0 | *stage;
+  //     }
+  //     // Storage Buffers
+  //     for sb_resource in shader_resources.storage_buffers.iter() {
+  //       let set = shader_ast
+  //         .get_decoration(sb_resource.id, spirv_cross::spirv::Decoration::DescriptorSet)
+  //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
+  //       let binding = shader_ast
+  //         .get_decoration(sb_resource.id, spirv_cross::spirv::Decoration::Binding)
+  //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
+  //       let binding_info = set_binding_info
+  //         .entry(set)
+  //         .or_insert(HashMap::new())
+  //         .entry(binding)
+  //         .or_insert((*stage, vk::DescriptorType::STORAGE_BUFFER));
+  //       binding_info.0 = binding_info.0 | *stage;
+  //     }
+  //     // Sampled Images
+  //     for si_resource in shader_resources.sampled_images.iter() {
+  //       let set = shader_ast
+  //         .get_decoration(si_resource.id, spirv_cross::spirv::Decoration::DescriptorSet)
+  //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
+  //       let binding = shader_ast
+  //         .get_decoration(si_resource.id, spirv_cross::spirv::Decoration::Binding)
+  //         .map_err(|e| format!("at getting desriptor set id: {e}"))?;
+  //       let binding_info = set_binding_info
+  //         .entry(set)
+  //         .or_insert(HashMap::new())
+  //         .entry(binding)
+  //         .or_insert((*stage, vk::DescriptorType::COMBINED_IMAGE_SAMPLER));
+  //       binding_info.0 = binding_info.0 | *stage;
   //     }
   //   }
+  //   Ok(())
   // }
 }
 
