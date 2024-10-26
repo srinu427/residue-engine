@@ -1,6 +1,5 @@
 use std::{
   collections::HashMap,
-  path::PathBuf,
   sync::{Arc, Mutex},
 };
 
@@ -131,13 +130,13 @@ impl TriMeshRenderer {
     let vert_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
       &[
-        (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
-        (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(vec![None])),
+        (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(None)),
+        (vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::StorageBuffer(None)),
       ],
     )?);
     let tex_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
-      &[(vk::ShaderStageFlags::FRAGMENT, AdDescriptorBinding::Sampler2D(vec![None]))],
+      &[(vk::ShaderStageFlags::FRAGMENT, AdDescriptorBinding::Sampler2D(None))],
     )?);
     let tex_sampler = Arc::new(AdSampler::new(ash_device.clone())?);
     let dset_pool = Arc::new(AdDescriptorPool::new(
@@ -244,7 +243,7 @@ impl TriMeshRenderer {
         .level_count(1)
     )?;
     let mut dset = AdDescriptorSet::new(self.dset_pool.clone(), &[&self.tex_dset_layout])?.remove(0);
-    dset.set_binding(0, AdDescriptorBinding::Sampler2D(vec![Some((albedo_local, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL, self.tex_sampler.clone()))]));
+    dset.set_binding(0, AdDescriptorBinding::Sampler2D(Some((albedo_local, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL, self.tex_sampler.clone()))));
     let dset = Arc::new(dset);
     self.textures.insert(name.to_string(), dset.clone());
     Ok(dset)
@@ -280,8 +279,8 @@ impl TriMeshRenderer {
 
     let mut dset =
       AdDescriptorSet::new(self.dset_pool.clone(), &[&self.vert_dset_layout])?.remove(0);
-    dset.set_binding(0, AdDescriptorBinding::StorageBuffer(vec![Some(vert_buffer)]));
-    dset.set_binding(1, AdDescriptorBinding::StorageBuffer(vec![Some(indx_buffer)]));
+    dset.set_binding(0, AdDescriptorBinding::StorageBuffer(Some(vert_buffer)));
+    dset.set_binding(1, AdDescriptorBinding::StorageBuffer(Some(indx_buffer)));
 
     let texture = self.add_texture(texture.0, texture.1, false)?;
 

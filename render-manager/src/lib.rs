@@ -152,7 +152,7 @@ impl RenderManager {
 
     let camera_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
-      &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(vec![None]))],
+      &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(None))],
     )?);
 
     let mut triangle_mesh_renderer = TriMeshRenderer::new(
@@ -217,7 +217,7 @@ impl RenderManager {
     )?);
 
     let mut camera_dset = AdDescriptorSet::new(camera_dset_pool, &[&camera_dset_layout])?.remove(0);
-    camera_dset.set_binding(0, AdDescriptorBinding::UniformBuffer(vec![Some(camera_buffer)]));
+    camera_dset.set_binding(0, AdDescriptorBinding::UniformBuffer(Some(camera_buffer)));
     let camera_dset = Arc::new(camera_dset);
 
     Ok(Self {

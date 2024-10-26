@@ -487,10 +487,10 @@ impl Drop for AdSampler {
 
 #[derive(Clone)]
 pub enum AdDescriptorBinding {
-  StorageBuffer(Vec<Option<Arc<AdBuffer>>>),
-  UniformBuffer(Vec<Option<Arc<AdBuffer>>>),
-  Image2D(Vec<Option<(Arc<AdImageView>, vk::ImageLayout)>>),
-  Sampler2D(Vec<Option<(Arc<AdImageView>, vk::ImageLayout, Arc<AdSampler>)>>),
+  StorageBuffer(Option<Arc<AdBuffer>>),
+  UniformBuffer(Option<Arc<AdBuffer>>),
+  Image2D(Option<(Arc<AdImageView>, vk::ImageLayout)>),
+  Sampler2D(Option<(Arc<AdImageView>, vk::ImageLayout, Arc<AdSampler>)>),
 }
 
 impl AdDescriptorBinding {
@@ -503,72 +503,51 @@ impl AdDescriptorBinding {
     }
   }
 
-  pub fn get_descriptor_count(&self) -> u32 {
-    match self {
-      Self::StorageBuffer(x) => x.len() as u32,
-      Self::UniformBuffer(x) => x.len() as u32,
-      Self::Image2D(x) => x.len() as u32,
-      Self::Sampler2D(x) => x.len() as u32,
-    }
-  }
-
-  pub fn get_descriptor_infos(
+  pub fn get_descriptor_info(
     &self,
-  ) -> (Vec<vk::DescriptorBufferInfo>, Vec<vk::DescriptorImageInfo>) {
+  ) -> (Option<vk::DescriptorBufferInfo>, Option<vk::DescriptorImageInfo>) {
     match self {
       AdDescriptorBinding::StorageBuffer(v) => {
-        let buffer_infos = v
-          .iter()
-          .filter_map(|x| {
-            x.as_ref().map(|b| {
-              vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
-            })
-          })
-          .collect::<Vec<_>>();
-        (buffer_infos, vec![])
+        let buffer_info = v
+          .as_ref()
+          .map(|b| {
+            vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
+          });
+        (buffer_info, None)
       }
       AdDescriptorBinding::UniformBuffer(v) => {
-        let buffer_infos = v
-          .iter()
-          .filter_map(|x| {
-            x.as_ref().map(|b| {
-              vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
-            })
-          })
-          .collect::<Vec<_>>();
-        (buffer_infos, vec![])
+        let buffer_info = v
+          .as_ref()
+          .map(|b| {
+            vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
+          });
+        (buffer_info, None)
       }
       AdDescriptorBinding::Image2D(v) => {
-        let image_infos = v
-          .iter()
-          .filter_map(|x| {
-            x.as_ref().map(|id| {
-              vk::DescriptorImageInfo::default().image_view(id.0.inner()).image_layout(id.1)
-            })
-          })
-          .collect::<Vec<_>>();
-        (vec![], image_infos)
+        let image_info = v
+          .as_ref()
+          .map(|id| {
+            vk::DescriptorImageInfo::default().image_view(id.0.inner()).image_layout(id.1)
+          });
+        (None, image_info)
       }
       AdDescriptorBinding::Sampler2D(v) => {
-        let image_infos = v
-          .iter()
-          .filter_map(|x| {
-            x.as_ref().map(|id| {
-              vk::DescriptorImageInfo::default().sampler(id.2.inner()).image_view(id.0.inner()).image_layout(id.1)
-            })
-          })
-          .collect::<Vec<_>>();
-        (vec![], image_infos)
+        let image_info = v
+          .as_ref()
+          .map(|id| {
+            vk::DescriptorImageInfo::default().sampler(id.2.inner()).image_view(id.0.inner()).image_layout(id.1)
+          });
+        (None, image_info)
       }
     }
   }
 
   pub fn drop_embedded(self) -> Self {
     match self {
-      Self::StorageBuffer(x) => Self::StorageBuffer(vec![None; x.len()]),
-      Self::UniformBuffer(x) => Self::UniformBuffer(vec![None; x.len()]),
-      Self::Image2D(x) => Self::Image2D(vec![None; x.len()]),
-      Self::Sampler2D(x) => Self::Sampler2D(vec![None; x.len()]),
+      Self::StorageBuffer(_x) => Self::StorageBuffer(None),
+      Self::UniformBuffer(_x) => Self::UniformBuffer(None),
+      Self::Image2D(_x) => Self::Image2D(None),
+      Self::Sampler2D(_x) => Self::Sampler2D(None),
     }
   }
 }
@@ -597,7 +576,31 @@ impl AdDescriptorSetLayout {
           .binding(i as u32)
           .stage_flags(binding.0)
           .descriptor_type(binding.1.get_descriptor_type())
-          .descriptor_count(binding.1.get_descriptor_count())
+          .descriptor_count(1)
+      })
+      .collect::<Vec<_>>();
+    let dsl_create_info =
+      vk::DescriptorSetLayoutCreateInfo::default().bindings(&vk_descriptor_bindings);
+    unsafe {
+      let descriptor_set_layout = ash_device
+        .inner()
+        .create_descriptor_set_layout(&dsl_create_info, None)
+        .map_err(|e| format!("at creating vk descriptor set layout: {e}"))?;
+      Ok(AdDescriptorSetLayout { ash_device, inner: descriptor_set_layout, empty_bindings })
+    }
+  }
+
+  pub fn new_sparse(ash_device: Arc<AdAshDevice>, bindings: &[(u32, vk::ShaderStageFlags, AdDescriptorBinding)]) -> Result<Self, String> {
+    let empty_bindings =
+      bindings.iter().map(|x| (x.1, x.2.clone().drop_embedded())).collect::<Vec<_>>();
+    let vk_descriptor_bindings = bindings
+      .iter()
+      .map(|binding| {
+        vk::DescriptorSetLayoutBinding::default()
+          .binding(binding.0)
+          .stage_flags(binding.1)
+          .descriptor_type(binding.2.get_descriptor_type())
+          .descriptor_count(1)
       })
       .collect::<Vec<_>>();
     let dsl_create_info =
@@ -710,17 +713,20 @@ impl AdDescriptorSet {
   }
 
   pub fn set_binding(&mut self, binding_id: u32, binding: AdDescriptorBinding) {
-    let (buffers_info, images_info) = binding.get_descriptor_infos();
+    let (buffer_info, image_info) = binding.get_descriptor_info();
+    let buffer_info = buffer_info.map(|x| vec![x]).unwrap_or(vec![]);
+    let image_info = image_info.map(|x| vec![x]).unwrap_or(vec![]);
     let mut write_info = vk::WriteDescriptorSet::default()
       .dst_set(self.inner)
       .dst_binding(binding_id)
       .descriptor_type(binding.get_descriptor_type())
-      .descriptor_count(binding.get_descriptor_count());
-    if buffers_info.len() > 0 {
-      write_info = write_info.buffer_info(&buffers_info);
+      .descriptor_count(1);
+
+    if buffer_info.len() > 0 {
+      write_info = write_info.buffer_info(&buffer_info);
     }
-    if images_info.len() > 0 {
-      write_info = write_info.image_info(&images_info);
+    if image_info.len() > 0 {
+      write_info = write_info.image_info(&image_info);
     }
     unsafe {
       self.desc_pool.ash_device.inner().update_descriptor_sets(&[write_info], &[]);
