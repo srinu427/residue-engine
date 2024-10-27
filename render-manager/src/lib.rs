@@ -17,18 +17,10 @@ use ash_ad_wrappers::{
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
-use triangle_mesh_renderer::{TriMeshCPU, TriMeshRenderer, glam};
+use triangle_mesh_renderer::{glam::{self, Vec4Swizzles}, Camera3D, TriMeshCPU, TriMeshRenderer};
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-struct Camera3D {
-  pos: glam::Vec4,
-  look_dir: glam::Vec4,
-  view_proj_mat: glam::Mat4,
-}
 
 pub struct RenderManager {
   camera_dset: Arc<AdDescriptorSet>,
@@ -158,7 +150,6 @@ impl RenderManager {
     let mut triangle_mesh_renderer = TriMeshRenderer::new(
       ash_device.clone(),
       queues[&GPUQueueType::Transfer].clone(),
-      &camera_dset_layout,
     )?;
     let tri_verts_cpu = TriMeshCPU::make_cuboid(
       glam::vec3(0.0, 0.0, 0.0),
@@ -190,8 +181,8 @@ impl RenderManager {
         glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
       );
     let camera = Camera3D {
-      pos: glam::vec4(0.0, 0.0, 1.0, 0.0),
-      look_dir: glam::vec4(0.0, 0.0, 0.0, 0.0),
+      pos: glam::vec4(2.0, 2.0, 2.0, 0.0),
+      look_dir: glam::vec4(-1.0, -1.0, -1.0, 0.0),
       view_proj_mat: vp_mat,
     };
 
@@ -291,6 +282,18 @@ impl RenderManager {
           .map_err(|e| format!("at getting image mem lock: {e}"))?
           .rename(&format!("triangle_out_image_{i}"))?;
       }
+    }
+
+    // Camera update
+    let current_aspect_ratio = self.triangle_frame_buffers[image_idx as usize].resolution().width as f32 / self.triangle_frame_buffers[image_idx as usize].resolution().height as f32;
+    self.camera.view_proj_mat = glam::Mat4::perspective_rh(1.5, current_aspect_ratio, 1.0, 1000.0)
+    * glam::Mat4::look_at_rh(
+      self.camera.pos.xyz(),
+      self.camera.pos.xyz() + self.camera.look_dir.xyz(),
+      glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
+    );
+    if let AdDescriptorBinding::UniformBuffer(Some(cam_buffer)) = self.camera_dset.bindings()[0].clone() {
+      cam_buffer.write_data(0, &[self.camera])?;
     }
 
     self.render_cmd_buffers[image_idx as usize]

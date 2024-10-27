@@ -86,6 +86,8 @@ pub struct AdBuffer {
   ash_device: Arc<AdAshDevice>,
   #[getset(get = "pub")]
   allocation: Mutex<AdAllocation>,
+  #[getset(get = "pub")]
+  location: MemoryLocation,
 }
 
 impl AdBuffer {
@@ -123,6 +125,7 @@ impl AdBuffer {
         name: name.to_string(),
         ash_device,
         allocation: Mutex::new(allocation),
+        location: mem_location,
       })
     }
   }
@@ -138,16 +141,6 @@ impl AdBuffer {
     cmd_buffer: &AdCommandBuffer,
   ) -> Result<AdBuffer, String> {
     let data = Self::get_byte_slice(struct_slice);
-    let stage_buffer = Self::new(
-      ash_device.clone(),
-      allocator.clone(),
-      MemoryLocation::CpuToGpu,
-      &format!("{name}_stage_buffer"),
-      flags,
-      data.len() as u64,
-      vk::BufferUsageFlags::TRANSFER_SRC,
-    )?;
-    stage_buffer.write_data(0, data)?;
 
     let buffer = Self::new(
       ash_device.clone(),
@@ -158,17 +151,33 @@ impl AdBuffer {
       data.len() as u64,
       usage | vk::BufferUsageFlags::TRANSFER_DST,
     )?;
-    cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
-    cmd_buffer.copy_buffer_to_buffer_cmd(
-      stage_buffer.inner(),
-      buffer.inner(),
-      &[vk::BufferCopy { src_offset: 0, dst_offset: 0, size: data.len() as u64 }],
-    );
-    cmd_buffer.end()?;
 
-    let tmp_fence = AdFence::new(ash_device.clone(), vk::FenceCreateFlags::default())?;
-    cmd_buffer.submit(&[], &[], Some(&tmp_fence))?;
-    tmp_fence.wait(999999999)?;
+    if mem_location == MemoryLocation::GpuOnly {
+      let stage_buffer = Self::new(
+        ash_device.clone(),
+        allocator.clone(),
+        MemoryLocation::CpuToGpu,
+        &format!("{name}_stage_buffer"),
+        flags,
+        data.len() as u64,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+      )?;
+      stage_buffer.write_data(0, data)?;
+
+      cmd_buffer.begin(vk::CommandBufferUsageFlags::default())?;
+      cmd_buffer.copy_buffer_to_buffer_cmd(
+        stage_buffer.inner(),
+        buffer.inner(),
+        &[vk::BufferCopy { src_offset: 0, dst_offset: 0, size: data.len() as u64 }],
+      );
+      cmd_buffer.end()?;
+
+      let tmp_fence = AdFence::new(ash_device.clone(), vk::FenceCreateFlags::default())?;
+      cmd_buffer.submit(&[], &[], Some(&tmp_fence))?;
+      tmp_fence.wait(999999999)?;
+    } else {
+      buffer.write_data(0, data)?;
+    }
 
     Ok(buffer)
   }
