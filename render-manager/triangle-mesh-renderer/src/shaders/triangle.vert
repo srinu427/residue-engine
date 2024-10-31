@@ -25,7 +25,7 @@ layout(std430, set = 0, binding = 1) readonly buffer IndexArray { uint inds[]; }
 
 layout(std140, set = 1, binding = 0) uniform ObjectWrap { ObjectData data; } object_transfer;
 
-layout(std140, set = 2, binding = 0) uniform CamWrap { CamData data; } camera_buffer;
+layout(push_constant) uniform CamWrap { CamData data; } camera_buffer;
 
 vec4 invert_y_axis(vec4 v) {
   return vec4(v.x, -v.y, v.z, v.w);

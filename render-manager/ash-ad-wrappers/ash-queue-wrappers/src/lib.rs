@@ -216,6 +216,18 @@ impl AdCommandBuffer {
     }
   }
 
+  pub fn set_push_constant_data(&self, layout: vk::PipelineLayout, stages: vk::ShaderStageFlags, data: &[u8]) {
+    unsafe {
+      self.get_ash_device().cmd_push_constants(
+        self.inner,
+        layout,
+        stages,
+        0,
+        data
+      );
+    }
+  }
+
   pub fn set_view_port(&self, viewports: &[vk::Viewport]) {
     unsafe {
       self.get_ash_device().cmd_set_viewport(self.inner, 0, viewports);

@@ -129,6 +129,7 @@ impl AdPipeline {
     subpass_id: u32,
     shaders: HashMap<vk::ShaderStageFlags, &[u8]>,
     set_layouts: &[&AdDescriptorSetLayout],
+    push_constant_stages_n_len: (vk::ShaderStageFlags, u32),
     rasterizer_config: vk::PipelineRasterizationStateCreateInfo,
     blend_info: &vk::PipelineColorBlendStateCreateInfo,
   ) -> Result<Self, String> {
@@ -156,15 +157,25 @@ impl AdPipeline {
           .module(shader_modules[i].inner())
       })
       .collect::<Vec<_>>();
+
+    let set_layouts_vec = set_layouts.iter().map(|x| x.inner()).collect::<Vec<_>>();
+    let mut push_layouts_info = vec![];
+    if push_constant_stages_n_len.1 != 0 {
+       push_layouts_info.push(
+        vk::PushConstantRange::default()
+          .offset(0)
+          .size(push_constant_stages_n_len.1)
+          .stage_flags(push_constant_stages_n_len.0)
+      );
+    }
+    let pipeline_layout_info = vk::PipelineLayoutCreateInfo::default()
+      .set_layouts(&set_layouts_vec)
+      .push_constant_ranges(&push_layouts_info);
     let pipeline_layout = unsafe {
       render_pass
         .ash_device()
         .inner()
-        .create_pipeline_layout(
-          &vk::PipelineLayoutCreateInfo::default()
-            .set_layouts(&set_layouts.iter().map(|x| x.inner()).collect::<Vec<_>>()),
-          None,
-        )
+        .create_pipeline_layout(&pipeline_layout_info, None,)
         .map_err(|e| format!("at creating vk pipeline layout: {e}"))?
     };
 

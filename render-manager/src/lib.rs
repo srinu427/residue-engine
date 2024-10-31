@@ -9,21 +9,22 @@ use ash_ad_wrappers::{
     gpu_allocator::{vulkan::Allocator, MemoryLocation},
     AdAshDevice, GPUQueueType,
   },
-  ash_data_wrappers::{
-    AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout,
-  },
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
   ash_render_wrappers::AdFrameBuffer,
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
-use triangle_mesh_renderer::{glam::{self, Vec4Swizzles}, Camera3D, TriMeshCPU, TriMeshRenderer};
+use triangle_mesh_renderer::{glam, Camera3D, TriMeshCPU, TriMeshRenderer, TriRenderable};
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
 
+pub enum RenderObject {
+  TriMesh(Arc<TriRenderable>),
+}
+
 pub struct RenderManager {
-  camera_dset: Arc<AdDescriptorSet>,
+  render_objects: Vec<Arc<RenderObject>>,
   camera: Camera3D,
   triangle_frame_buffers: Vec<Arc<AdFrameBuffer>>,
   triangle_mesh_renderer: TriMeshRenderer,
@@ -142,11 +143,6 @@ impl RenderManager {
 
     let gen_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
 
-    let camera_dset_layout = Arc::new(AdDescriptorSetLayout::new(
-      ash_device.clone(),
-      &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(None))],
-    )?);
-
     let mut triangle_mesh_renderer = TriMeshRenderer::new(
       ash_device.clone(),
       queues[&GPUQueueType::Transfer].clone(),
@@ -174,42 +170,11 @@ impl RenderManager {
         .rename(&format!("triangle_out_image_{i}"))?;
     }
 
-    let vp_mat = glam::Mat4::perspective_rh(1.5, 1.333, 1.0, 1000.0)
-      * glam::Mat4::look_at_rh(
-        glam::Vec3 { x: 2.0f32, y: 2.0f32, z: 2.0f32 },
-        glam::Vec3 { x: 0.0f32, y: 0.0f32, z: 0.0f32 },
-        glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
-      );
     let camera = Camera3D {
       pos: glam::vec4(2.0, 2.0, 2.0, 0.0),
       look_dir: glam::vec4(-1.0, -1.0, -1.0, 0.0),
-      view_proj_mat: vp_mat,
+      view_proj_mat: glam::Mat4::IDENTITY,
     };
-
-    let camera_buffer = Arc::new(AdBuffer::new(
-      ash_device.clone(),
-      gen_allocator.clone(),
-      MemoryLocation::CpuToGpu,
-      &format!("camera_buffer"),
-      vk::BufferCreateFlags::empty(),
-      std::mem::size_of::<Camera3D>() as u64,
-      vk::BufferUsageFlags::UNIFORM_BUFFER,
-    )?);
-
-    camera_buffer.write_data(0, &[camera])?;
-
-    let camera_dset_pool = Arc::new(AdDescriptorPool::new(
-      ash_device.clone(),
-      vk::DescriptorPoolCreateFlags::empty(),
-      1,
-      &[vk::DescriptorPoolSize::default()
-        .descriptor_count(1)
-        .ty(vk::DescriptorType::UNIFORM_BUFFER)],
-    )?);
-
-    let mut camera_dset = AdDescriptorSet::new(camera_dset_pool, &[&camera_dset_layout])?.remove(0);
-    camera_dset.set_binding(0, AdDescriptorBinding::UniformBuffer(Some(camera_buffer)));
-    let camera_dset = Arc::new(camera_dset);
 
     Ok(Self {
       ash_device,
@@ -223,7 +188,7 @@ impl RenderManager {
       triangle_mesh_renderer,
       triangle_frame_buffers,
       camera,
-      camera_dset,
+      render_objects: vec![],
     })
   }
 
@@ -286,15 +251,10 @@ impl RenderManager {
 
     // Camera update
     let current_aspect_ratio = self.triangle_frame_buffers[image_idx as usize].resolution().width as f32 / self.triangle_frame_buffers[image_idx as usize].resolution().height as f32;
-    self.camera.view_proj_mat = glam::Mat4::perspective_rh(1.5, current_aspect_ratio, 1.0, 1000.0)
-    * glam::Mat4::look_at_rh(
-      self.camera.pos.xyz(),
-      self.camera.pos.xyz() + self.camera.look_dir.xyz(),
-      glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
-    );
-    if let AdDescriptorBinding::UniformBuffer(Some(cam_buffer)) = self.camera_dset.bindings()[0].clone() {
-      cam_buffer.write_data(0, &[self.camera])?;
-    }
+    self.camera.refresh_vp_matrix(1.5, current_aspect_ratio);
+    // if let AdDescriptorBinding::UniformBuffer(Some(cam_buffer)) = self.camera_dset.bindings()[0].clone() {
+    //   cam_buffer.write_data(0, &[self.camera])?;
+    // }
 
     self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferUsageFlags::default())
@@ -303,7 +263,7 @@ impl RenderManager {
     self.triangle_mesh_renderer.render_meshes(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
-      self.camera_dset.inner(),
+      self.camera,
     );
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(

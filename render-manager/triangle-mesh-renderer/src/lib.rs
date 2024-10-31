@@ -19,6 +19,7 @@ use ash_ad_wrappers::{
 };
 
 pub use glam;
+use glam::Vec4Swizzles;
 
 pub fn g_vec4_from_vec3(v: glam::Vec3, w: f32) -> glam::Vec4 {
   glam::vec4(v.x, v.y, v.z, w)
@@ -44,6 +45,18 @@ pub struct Camera3D {
   pub look_dir: glam::Vec4,
   pub view_proj_mat: glam::Mat4,
 }
+
+impl Camera3D {
+  pub fn refresh_vp_matrix(&mut self, fov: f32, aspect_ratio: f32) {
+    self.view_proj_mat = glam::Mat4::perspective_rh(fov, aspect_ratio, 1.0, 1000.0)
+    * glam::Mat4::look_at_rh(
+      self.pos.xyz(),
+      self.pos.xyz() + self.look_dir.xyz(),
+      glam::Vec3 { x: 0.0f32, y: 1.0f32, z: 0.0f32 },
+    );
+  }
+}
+
 
 pub struct TriMeshCPU {
   pub verts: Vec<TriMeshVertex>,
@@ -100,7 +113,6 @@ impl TriMeshCPU {
       .merge(Self::make_rect(center - (axis_y / 2.0), axis_x, axis_z))
       .merge(Self::make_rect(center + (axis_z / 2.0), axis_x, axis_y))
       .merge(Self::make_rect(center - (axis_z / 2.0), axis_y, axis_x))
-    
   }
 }
 
@@ -119,7 +131,7 @@ static VERT_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle.vert.spv");
 static FRAG_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle.frag.spv");
 
 pub struct TriMeshRenderer {
-  renderables: Vec<TriRenderable>,
+  renderables: Vec<Arc<TriRenderable>>,
   textures: HashMap<String, Arc<AdDescriptorSet>>,
   mesh_allocator: Arc<Mutex<Allocator>>,
   cmd_pool: Arc<AdCommandPool>,
@@ -128,7 +140,6 @@ pub struct TriMeshRenderer {
   tex_sampler: Arc<AdSampler>,
   vert_dset_layout: Arc<AdDescriptorSetLayout>,
   obj_dset_layout: Arc<AdDescriptorSetLayout>,
-  cam_dset_layout: Arc<AdDescriptorSetLayout>,
   tex_dset_layout: Arc<AdDescriptorSetLayout>,
   dset_pool: Arc<AdDescriptorPool>,
   ash_device: Arc<AdAshDevice>,
@@ -150,10 +161,6 @@ impl TriMeshRenderer {
       ],
     )?);
     let obj_dset_layout = Arc::new(AdDescriptorSetLayout::new(
-      ash_device.clone(),
-      &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(None))],
-    )?);
-    let cam_dset_layout = Arc::new(AdDescriptorSetLayout::new(
       ash_device.clone(),
       &[(vk::ShaderStageFlags::VERTEX, AdDescriptorBinding::UniformBuffer(None))],
     )?);
@@ -217,7 +224,8 @@ impl TriMeshRenderer {
         (vk::ShaderStageFlags::VERTEX, VERT_SHADER_CODE),
         (vk::ShaderStageFlags::FRAGMENT, FRAG_SHADER_CODE),
       ]),
-      &[&vert_dset_layout, &obj_dset_layout, &cam_dset_layout, &tex_dset_layout],
+      &[&vert_dset_layout, &obj_dset_layout, &tex_dset_layout],
+      (vk::ShaderStageFlags::VERTEX, std::mem::size_of::<Camera3D>() as u32),
       triangle_rasterizer_info,
       &vk::PipelineColorBlendStateCreateInfo::default().attachments(&[
         vk::PipelineColorBlendAttachmentState::default()
@@ -235,7 +243,6 @@ impl TriMeshRenderer {
       tex_sampler,
       vert_dset_layout,
       obj_dset_layout,
-      cam_dset_layout,
       tex_dset_layout,
       dset_pool,
       ash_device,
@@ -275,7 +282,7 @@ impl TriMeshRenderer {
     Ok(dset)
   }
 
-  pub fn add_renderable(&mut self, name: &str, cpu_mesh: &TriMeshCPU, texture: (&str, &str)) -> Result<(), String> {
+  pub fn add_renderable(&mut self, name: &str, cpu_mesh: &TriMeshCPU, texture: (&str, &str)) -> Result<Arc<TriRenderable>, String> {
     let tmp_cmd_buffer =
       AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let vert_buffer = Arc::new(AdBuffer::from_data(
@@ -325,16 +332,19 @@ impl TriMeshRenderer {
     obj_dset.set_binding(0, AdDescriptorBinding::UniformBuffer(Some(obj_buffer)));
 
     let texture = self.add_texture(texture.0, texture.1, false)?;
-
-    self.renderables.push(TriRenderable { mesh: TriMesh { indx_len: indices.len() as u32, vert_dset, obj_dset }, texture});
-    Ok(())
+    let renderable = Arc::new(
+      TriRenderable { mesh: TriMesh { indx_len: indices.len() as u32, vert_dset, obj_dset },
+      texture
+    });
+    self.renderables.push(renderable.clone());
+    Ok(renderable)
   }
 
   pub fn render_meshes(
     &self,
     cmd_buffer: &AdCommandBuffer,
     frame_buffer: &AdFrameBuffer,
-    camera_dset: vk::DescriptorSet,
+    camera: Camera3D,
   ) {
     cmd_buffer.begin_render_pass(
       self.render_pass.inner(),
@@ -362,7 +372,12 @@ impl TriMeshRenderer {
       cmd_buffer.bind_descriptor_sets(
         vk::PipelineBindPoint::GRAPHICS,
         self.pipeline.layout(),
-        &[renderable.mesh.vert_dset.inner(), renderable.mesh.obj_dset.inner(), camera_dset, renderable.texture.inner()],
+        &[renderable.mesh.vert_dset.inner(), renderable.mesh.obj_dset.inner(), renderable.texture.inner()],
+      );
+      cmd_buffer.set_push_constant_data(
+        self.pipeline.layout(),
+        vk::ShaderStageFlags::VERTEX,
+        AdBuffer::get_byte_slice(&[camera])
       );
       cmd_buffer.draw(renderable.mesh.indx_len);
     }
