@@ -1,5 +1,5 @@
-use render_manager::{AdAshInstance, AdSurface, AdSurfaceInstance, RenderManager};
-use std::sync::Arc;
+use render_manager::{glam, AdAshInstance, AdSurface, AdSurfaceInstance, RenderManager, Renderer, RendererMessage, TriMeshCPU};
+use std::sync::{Arc, Mutex};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -8,7 +8,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 pub struct AppActivity {
   surface: Option<Arc<AdSurface>>,
   window: Option<Window>,
-  render_manager: Option<RenderManager>,
+  render_manager: Option<Renderer>,
   ash_instance: Arc<AdAshInstance>,
 }
 
@@ -33,8 +33,8 @@ impl ApplicationHandler for AppActivity {
               return;
             }
           };
-          let render_manager =
-            match RenderManager::new(Arc::clone(&self.ash_instance.clone()), surface.clone()) {
+          let mut renderer =
+            match Renderer::new(surface.clone()) {
               Ok(x) => x,
               Err(e) => {
                 eprintln!("error creating window: {e}");
@@ -42,9 +42,19 @@ impl ApplicationHandler for AppActivity {
                 return;
               }
             };
+          let tri_verts_cpu = TriMeshCPU::make_cuboid(
+            glam::vec3(0.0, 0.0, 0.0),
+            glam::vec3(1.0, 0.0, 0.0),
+            glam::vec3(0.0, 1.0, 0.0),
+            1.0,
+          );
+          renderer.send_batch_sync(vec![RendererMessage::AddTriMesh(
+            "triangle_main".to_string(), tri_verts_cpu, "./background.png".to_string())
+          ]);
+        
           self.surface = Some(surface);
           self.window = Some(w);
-          self.render_manager = Some(render_manager);
+          self.render_manager = Some(renderer);
         }
         Err(e) => {
           eprintln!("error creating window: {e}");
@@ -95,19 +105,15 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::Occluded(_) => {}
       WindowEvent::RedrawRequested => {
         self.render_manager.as_mut().map(|x| {
-          for _ in 0..3 {
-            if let Ok(d_res) = x.draw().inspect_err(|e| eprintln!("{}", e)) {
-              if !d_res {
-                break;
-              }
-            }
-          }
+          x.send_batch_sync(vec![RendererMessage::Draw]).inspect_err(|e| eprintln!("at sending draw message: {e}"));
         });
       }
     }
   }
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    self.render_manager.as_mut().map(|x| x.draw().inspect_err(|e| eprintln!("{}", e)));
+    self.render_manager.as_mut().map(|x| {
+      x.send_batch_sync(vec![RendererMessage::Draw]).inspect_err(|e| eprintln!("at sending draw message: {e}"));
+    });
   }
 }

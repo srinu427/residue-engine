@@ -12,6 +12,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 pub struct AdSurfaceInstance {
   #[getset(get = "pub")]
   inner: khr::surface::Instance,
+  #[getset(get = "pub")]
   ash_instance: Arc<AdAshInstance>, // To stop deleting ash instance befor deleting this
 }
 
@@ -28,6 +29,7 @@ impl AdSurfaceInstance {
 pub struct AdSurface {
   #[getset(get_copy = "pub")]
   inner: vk::SurfaceKHR,
+  #[getset(get = "pub")]
   surface_instance: Arc<AdSurfaceInstance>,
 }
 

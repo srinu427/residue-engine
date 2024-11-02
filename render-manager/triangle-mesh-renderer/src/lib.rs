@@ -315,6 +315,8 @@ impl TriMeshRenderer {
     vert_dset.set_binding(0, AdDescriptorBinding::StorageBuffer(Some(vert_buffer)));
     vert_dset.set_binding(1, AdDescriptorBinding::StorageBuffer(Some(indx_buffer)));
 
+    let tmp_cmd_buffer =
+      AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let obj_data = vec![ObjectData{ transform: glam::Mat4::IDENTITY}];
     let obj_buffer = Arc::new(AdBuffer::from_data(
       self.ash_device.clone(),

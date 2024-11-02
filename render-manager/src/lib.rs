@@ -1,6 +1,6 @@
 use std::{
   collections::HashMap,
-  sync::{Arc, Mutex},
+  sync::{mpsc, Arc, Mutex},
 };
 
 use ash_ad_wrappers::{
@@ -14,10 +14,80 @@ use ash_ad_wrappers::{
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
-use triangle_mesh_renderer::{glam, Camera3D, TriMeshCPU, TriMeshRenderer, TriRenderable};
+use triangle_mesh_renderer::{Camera3D, TriMeshRenderer, TriRenderable};
+pub use triangle_mesh_renderer::{glam, TriMeshCPU};
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
+
+pub enum RendererMessage {
+  AddTriMesh(String, TriMeshCPU, String),
+  Draw,
+  Stop,
+}
+
+pub struct RendererMessageBatch {
+  ordered: bool,
+  batch: Vec<RendererMessage>,
+}
+
+pub struct Renderer {
+  thread: std::thread::JoinHandle<Result<(), String>>,
+  message_sx: mpsc::Sender<RendererMessageBatch>,
+  status_rx: mpsc::Receiver<bool>,
+}
+
+impl Renderer {
+  pub fn new(surface: Arc<AdSurface>) -> Result<Self, String> {
+    let (message_sx, message_rx) = mpsc::channel::<RendererMessageBatch>();
+    let (status_sx, status_rx) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
+      let mut render_mgr = RenderManager::new(surface)?;
+      for message_batch in message_rx {
+        for message in message_batch.batch {
+          match message {
+            RendererMessage::AddTriMesh(name, tri_mesh_cpu, tex_file) => {
+              let _ = render_mgr.add_tri_mesh(name, tri_mesh_cpu, tex_file)
+                .inspect_err(|e| eprintln!("error adding mesh: {e}"));
+            },
+            RendererMessage::Draw => {
+              for _ in 0..3 {
+                if let Ok(d_res) = render_mgr.draw().inspect_err(|e| eprintln!("{}", e)) {
+                  if !d_res {
+                    break;
+                  }
+                }
+              };
+            },
+            RendererMessage::Stop => {
+              break;
+            },
+          }
+        }
+        status_sx.send(true).inspect_err(|e| eprintln!("at renderer sending complete signal: {e}"));
+      }
+      Ok::<(), String>(())
+    });
+    Ok(Self { thread, message_sx, status_rx })
+  }
+
+  pub fn send_batch_sync(&mut self, batch: Vec<RendererMessage>) -> Result<bool, String> {
+    self.message_sx.send(RendererMessageBatch { ordered: true, batch }).map_err(|e| format!("at sending messages to renderer:{e}"))?;
+    let msg = self.status_rx.recv().map_err(|e| format!("cant get response from renderer: {e}"))?;
+    Ok(msg)
+  }
+}
+
+impl Drop for Renderer {
+  fn drop(&mut self) {
+    if !self.thread.is_finished() {
+      let _ = self
+        .message_sx
+        .send(RendererMessageBatch{ ordered: true, batch: vec![RendererMessage::Stop] })
+        .inspect_err(|e| eprintln!("at stopping renderer: {e}"));
+    }
+  }
+}
 
 pub enum RenderObject {
   TriMesh(Arc<TriRenderable>),
@@ -39,7 +109,8 @@ pub struct RenderManager {
 }
 
 impl RenderManager {
-  pub fn new(ash_instance: Arc<AdAshInstance>, surface: Arc<AdSurface>) -> Result<Self, String> {
+  pub fn new(surface: Arc<AdSurface>) -> Result<Self, String> {
+    let ash_instance = surface.surface_instance().ash_instance().clone();
     let gpu = ash_instance.list_dedicated_gpus()?.iter().next().cloned().unwrap_or(
       ash_instance.list_gpus()?.iter().next().cloned().ok_or("no supported gpus".to_string())?,
     );
@@ -143,17 +214,10 @@ impl RenderManager {
 
     let gen_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
 
-    let mut triangle_mesh_renderer = TriMeshRenderer::new(
+    let triangle_mesh_renderer = TriMeshRenderer::new(
       ash_device.clone(),
       queues[&GPUQueueType::Transfer].clone(),
     )?;
-    let tri_verts_cpu = TriMeshCPU::make_cuboid(
-      glam::vec3(0.0, 0.0, 0.0),
-      glam::vec3(1.0, 0.0, 0.0),
-      glam::vec3(0.0, 1.0, 0.0),
-      1.0,
-    );
-    triangle_mesh_renderer.add_renderable("triangle_main", &tri_verts_cpu, ("bg_tex", "./background.png"))?;
 
     let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(
       &render_cmd_buffers[0],
@@ -190,6 +254,11 @@ impl RenderManager {
       camera,
       render_objects: vec![],
     })
+  }
+
+  pub fn add_tri_mesh(&mut self, name: String, mesh: TriMeshCPU, tex_path: String) -> Result<(), String> {
+    self.triangle_mesh_renderer.add_renderable(&name, &mesh, (&tex_path, &tex_path))?;
+    Ok(())
   }
 
   pub fn draw(&mut self) -> Result<bool, String> {
