@@ -1,5 +1,5 @@
-use render_manager::{glam, AdAshInstance, AdSurface, AdSurfaceInstance, RenderManager, Renderer, RendererMessage, TriMeshCPU};
-use std::sync::{Arc, Mutex};
+use render_manager::{glam, AdAshInstance, AdSurface, AdSurfaceInstance, Renderer, RendererMessage, TriMeshCPU};
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -48,8 +48,12 @@ impl ApplicationHandler for AppActivity {
             glam::vec3(0.0, 1.0, 0.0),
             1.0,
           );
-          renderer.send_batch_sync(vec![RendererMessage::AddTriMesh(
-            "triangle_main".to_string(), tri_verts_cpu, "./background.png".to_string())
+          renderer.send_batch_sync(
+            vec![RendererMessage::AddTriMesh(
+              "triangle_main".to_string(),
+              Arc::new(tri_verts_cpu),
+              "./background.png".to_string()
+            )
           ]);
         
           self.surface = Some(surface);

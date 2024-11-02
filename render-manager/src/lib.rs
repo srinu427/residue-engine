@@ -1,12 +1,13 @@
 use std::{
-  collections::HashMap,
-  sync::{mpsc, Arc, Mutex},
+  collections::HashMap, process::exit, sync::{mpsc, Arc, Mutex, RwLock}, time::Instant
 };
+
+use crossbeam_channel as cc;
 
 use ash_ad_wrappers::{
   ash_context::{
     ash::{khr, vk},
-    gpu_allocator::{vulkan::Allocator, MemoryLocation},
+    gpu_allocator::vulkan::Allocator,
     AdAshDevice, GPUQueueType,
   },
   ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
@@ -21,7 +22,7 @@ pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
 
 pub enum RendererMessage {
-  AddTriMesh(String, TriMeshCPU, String),
+  AddTriMesh(String, Arc<TriMeshCPU>, String),
   Draw,
   Stop,
 }
@@ -33,21 +34,22 @@ pub struct RendererMessageBatch {
 
 pub struct Renderer {
   thread: std::thread::JoinHandle<Result<(), String>>,
-  message_sx: mpsc::Sender<RendererMessageBatch>,
-  status_rx: mpsc::Receiver<bool>,
+  ordered_cmds: Arc<RwLock<Vec<RendererMessage>>>,
 }
 
 impl Renderer {
   pub fn new(surface: Arc<AdSurface>) -> Result<Self, String> {
-    let (message_sx, message_rx) = mpsc::channel::<RendererMessageBatch>();
-    let (status_sx, status_rx) = mpsc::channel();
+    let ordered_cmds = Arc::new(RwLock::new(vec![]));
+    let renderer_ordered_cmds = ordered_cmds.clone();
+
     let thread = std::thread::spawn(move || {
       let mut render_mgr = RenderManager::new(surface)?;
-      for message_batch in message_rx {
-        for message in message_batch.batch {
+      loop {
+        let mut quit_renderer = false;
+        for message in renderer_ordered_cmds.read().map_err(|e| format!("memory poisoning: {e}"))?.iter() {
           match message {
             RendererMessage::AddTriMesh(name, tri_mesh_cpu, tex_file) => {
-              let _ = render_mgr.add_tri_mesh(name, tri_mesh_cpu, tex_file)
+              let _ = render_mgr.add_tri_mesh(name.to_string(), &tri_mesh_cpu, tex_file.to_string())
                 .inspect_err(|e| eprintln!("error adding mesh: {e}"));
             },
             RendererMessage::Draw => {
@@ -60,21 +62,31 @@ impl Renderer {
               };
             },
             RendererMessage::Stop => {
-              break;
+              quit_renderer = true;
             },
           }
         }
-        status_sx.send(true).inspect_err(|e| eprintln!("at renderer sending complete signal: {e}"));
+        renderer_ordered_cmds.write().map_err(|e| format!("memory poisoning: {e}"))?.clear();
+        if quit_renderer {
+          break;
+        }
       }
-      Ok::<(), String>(())
+      return Ok::<(), String>(())
     });
-    Ok(Self { thread, message_sx, status_rx })
+    Ok(Self { thread, ordered_cmds })
   }
 
-  pub fn send_batch_sync(&mut self, batch: Vec<RendererMessage>) -> Result<bool, String> {
-    self.message_sx.send(RendererMessageBatch { ordered: true, batch }).map_err(|e| format!("at sending messages to renderer:{e}"))?;
-    let msg = self.status_rx.recv().map_err(|e| format!("cant get response from renderer: {e}"))?;
-    Ok(msg)
+  pub fn send_batch_sync(&mut self, mut batch: Vec<RendererMessage>) -> Result<bool, String> {
+    loop {
+      if self.ordered_cmds.read().map_err(|e| format!("memory poisoning: {e}"))?.len() == 0 {
+        let mut cmds = self.ordered_cmds.write().map_err(|e| format!("memory poisoning: {e}"))?;
+        if cmds.len() == 0{
+          cmds.append(&mut batch);
+          break
+        }
+      }
+    }
+    Ok(true)
   }
 }
 
@@ -82,8 +94,7 @@ impl Drop for Renderer {
   fn drop(&mut self) {
     if !self.thread.is_finished() {
       let _ = self
-        .message_sx
-        .send(RendererMessageBatch{ ordered: true, batch: vec![RendererMessage::Stop] })
+        .send_batch_sync(vec![RendererMessage::Stop])
         .inspect_err(|e| eprintln!("at stopping renderer: {e}"));
     }
   }
@@ -166,7 +177,7 @@ impl RenderManager {
       .unwrap_or(surface_formats[0]);
     let present_mode = surface_present_modes
       .iter()
-      .find(|m| **m == vk::PresentModeKHR::MAILBOX)
+      .find(|m| **m == vk::PresentModeKHR::IMMEDIATE)
       .cloned()
       .unwrap_or(vk::PresentModeKHR::FIFO);
 
@@ -256,8 +267,8 @@ impl RenderManager {
     })
   }
 
-  pub fn add_tri_mesh(&mut self, name: String, mesh: TriMeshCPU, tex_path: String) -> Result<(), String> {
-    self.triangle_mesh_renderer.add_renderable(&name, &mesh, (&tex_path, &tex_path))?;
+  pub fn add_tri_mesh(&mut self, name: String, mesh: &TriMeshCPU, tex_path: String) -> Result<(), String> {
+    self.triangle_mesh_renderer.add_renderable(&name, mesh, (&tex_path, &tex_path))?;
     Ok(())
   }
 
