@@ -34,19 +34,20 @@ pub struct RendererMessageBatch {
 
 pub struct Renderer {
   thread: std::thread::JoinHandle<Result<(), String>>,
-  ordered_cmds: Arc<RwLock<Vec<RendererMessage>>>,
+  ordered_cmds: Arc<Mutex<Vec<RendererMessage>>>,
 }
 
 impl Renderer {
   pub fn new(surface: Arc<AdSurface>) -> Result<Self, String> {
-    let ordered_cmds = Arc::new(RwLock::new(vec![]));
+    let ordered_cmds = Arc::new(Mutex::new(vec![]));
     let renderer_ordered_cmds = ordered_cmds.clone();
 
     let thread = std::thread::spawn(move || {
       let mut render_mgr = RenderManager::new(surface)?;
       loop {
         let mut quit_renderer = false;
-        for message in renderer_ordered_cmds.read().map_err(|e| format!("memory poisoning: {e}"))?.iter() {
+        let mut current_cmds = renderer_ordered_cmds.lock().map_err(|e| format!("memory poisoning: {e}"))?;
+        for message in current_cmds.iter() {
           match message {
             RendererMessage::AddTriMesh(name, tri_mesh_cpu, tex_file) => {
               let _ = render_mgr.add_tri_mesh(name.to_string(), &tri_mesh_cpu, tex_file.to_string())
@@ -66,7 +67,7 @@ impl Renderer {
             },
           }
         }
-        renderer_ordered_cmds.write().map_err(|e| format!("memory poisoning: {e}"))?.clear();
+        current_cmds.clear();
         if quit_renderer {
           break;
         }
@@ -78,12 +79,10 @@ impl Renderer {
 
   pub fn send_batch_sync(&mut self, mut batch: Vec<RendererMessage>) -> Result<bool, String> {
     loop {
-      if self.ordered_cmds.read().map_err(|e| format!("memory poisoning: {e}"))?.len() == 0 {
-        let mut cmds = self.ordered_cmds.write().map_err(|e| format!("memory poisoning: {e}"))?;
-        if cmds.len() == 0{
-          cmds.append(&mut batch);
-          break
-        }
+      let mut current_cmds = self.ordered_cmds.lock().map_err(|e| format!("memory poisoning: {e}"))?;
+      if current_cmds.len() == 0 {
+        current_cmds.append(&mut batch);
+        break;
       }
     }
     Ok(true)
