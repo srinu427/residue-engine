@@ -1,8 +1,8 @@
 [package]
-name = "game-logic"
+name = "renderables"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 glam = "0.29.0"
-render-manager = {path="../render-manager"}
+ash-ad-wrappers = {path = "../ash-ad-wrappers"}

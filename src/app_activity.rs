@@ -48,13 +48,22 @@ impl ApplicationHandler for AppActivity {
             glam::vec3(0.0, 1.0, 0.0),
             1.0,
           );
-          renderer.send_batch_sync(
-            vec![RendererMessage::AddTriMesh(
-              "triangle_main".to_string(),
-              Arc::new(tri_verts_cpu),
-              "./background.png".to_string()
-            )
-          ]);
+          let _ = renderer.send_batch_sync(
+            vec![
+              RendererMessage::AddTriMeshIfNotPresent(
+                "triangle_main".to_string(),
+                tri_verts_cpu,
+              ),
+              RendererMessage::AddFlatTexIfNotPresent(
+                "./background.png".to_string(),
+                "./background.png".to_string(),
+              ),
+              RendererMessage::AddTriMeshFlatTexToRender(
+                "triangle_main".to_string(),
+                "./background.png".to_string(),
+              ),
+            ])
+            .inspect_err(|e| println!("at sending work to renderer: {e}"));
         
           self.surface = Some(surface);
           self.window = Some(w);
@@ -109,7 +118,9 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::Occluded(_) => {}
       WindowEvent::RedrawRequested => {
         self.render_manager.as_mut().map(|x| {
-          x.send_batch_sync(vec![RendererMessage::Draw]).inspect_err(|e| eprintln!("at sending draw message: {e}"));
+          let _ = x
+            .send_batch_sync(vec![RendererMessage::Draw])
+            .inspect_err(|e| eprintln!("at sending draw message: {e}"));
         });
       }
     }
@@ -117,7 +128,9 @@ impl ApplicationHandler for AppActivity {
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
     self.render_manager.as_mut().map(|x| {
-      x.send_batch_sync(vec![RendererMessage::Draw]).inspect_err(|e| eprintln!("at sending draw message: {e}"));
+      let _ = x
+        .send_batch_sync(vec![RendererMessage::Draw])
+        .inspect_err(|e| eprintln!("at sending draw message: {e}"));
     });
   }
 }

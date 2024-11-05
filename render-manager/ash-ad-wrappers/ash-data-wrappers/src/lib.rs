@@ -13,6 +13,8 @@ pub struct AdAllocation {
   allocator: Arc<Mutex<Allocator>>,
   #[getset(get = "pub")]
   inner: Option<Allocation>,
+  #[getset(get_copy = "pub")]
+  location: MemoryLocation,
   #[getset(get = "pub")]
   name: String,
 }
@@ -35,7 +37,7 @@ impl AdAllocation {
         allocation_scheme: AllocationScheme::GpuAllocatorManaged,
       })
       .map_err(|e| format!("at allocating buffer mem: {e}"))?;
-    Ok(Self { allocator, inner: Some(altn), name: name.to_string() })
+    Ok(Self { allocator, inner: Some(altn), location: mem_location, name: name.to_string() })
   }
 
   pub fn write_data(&mut self, offset: usize, bytes: &[u8]) -> Result<(), String> {
@@ -86,8 +88,6 @@ pub struct AdBuffer {
   ash_device: Arc<AdAshDevice>,
   #[getset(get = "pub")]
   allocation: Mutex<AdAllocation>,
-  #[getset(get = "pub")]
-  location: MemoryLocation,
 }
 
 impl AdBuffer {
@@ -125,7 +125,6 @@ impl AdBuffer {
         name: name.to_string(),
         ash_device,
         allocation: Mutex::new(allocation),
-        location: mem_location,
       })
     }
   }
@@ -142,7 +141,7 @@ impl AdBuffer {
   ) -> Result<AdBuffer, String> {
     let data = Self::get_byte_slice(struct_slice);
 
-    let buffer = Self::new(
+    let mut buffer = Self::new(
       ash_device.clone(),
       allocator.clone(),
       mem_location,
@@ -153,7 +152,7 @@ impl AdBuffer {
     )?;
 
     if mem_location == MemoryLocation::GpuOnly {
-      let stage_buffer = Self::new(
+      let mut stage_buffer = Self::new(
         ash_device.clone(),
         allocator.clone(),
         MemoryLocation::CpuToGpu,
@@ -182,7 +181,7 @@ impl AdBuffer {
     Ok(buffer)
   }
 
-  pub fn write_data<T>(&self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
+  pub fn write_data<T>(&mut self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
     let data = Self::get_byte_slice(struct_slice);
     if offset + data.len() > self.size as usize {
       return Err(format!("buffer {} only supports {} bytes", &self.name, self.size));
@@ -298,7 +297,7 @@ impl AdImage {
     let image_info = image::open(file_path).map_err(|e| format!("at loading file: {e}"))?;
     let image_rgba8 = image_info.to_rgba8();
 
-    let stage_buffer = AdBuffer::new(
+    let mut stage_buffer = AdBuffer::new(
       ash_device.clone(),
       allocator.clone(),
       MemoryLocation::CpuToGpu,
@@ -403,7 +402,6 @@ impl Drop for AdImage {
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct AdImageView {
-  ash_device: Arc<AdAshDevice>,
   #[getset(get = "pub")]
   image: Arc<AdImage>,
   #[getset(get_copy = "pub")]
@@ -451,7 +449,6 @@ impl AdImageView {
         .map_err(|e| format!("at creating vk image view: {e}"))?
     };
     Ok(Arc::new(AdImageView {
-      ash_device: image.ash_device.clone(),
       inner: image_view,
       image,
       view_type,
@@ -462,7 +459,7 @@ impl AdImageView {
 impl Drop for AdImageView {
   fn drop(&mut self) {
     unsafe {
-      self.ash_device.inner().destroy_image_view(self.inner, None);
+      self.image().ash_device.inner().destroy_image_view(self.inner, None);
     }
   }
 }
@@ -496,10 +493,10 @@ impl Drop for AdSampler {
 
 #[derive(Clone)]
 pub enum AdDescriptorBinding {
-  StorageBuffer(Option<Arc<AdBuffer>>),
-  UniformBuffer(Option<Arc<AdBuffer>>),
-  Image2D(Option<(Arc<AdImageView>, vk::ImageLayout)>),
-  Sampler2D(Option<(Arc<AdImageView>, vk::ImageLayout, Arc<AdSampler>)>),
+  StorageBuffer(Arc<AdBuffer>),
+  UniformBuffer(Arc<AdBuffer>),
+  Image2D((Arc<AdImageView>, vk::ImageLayout)),
+  Sampler2D((Arc<AdImageView>, vk::ImageLayout, Arc<AdSampler>)),
 }
 
 impl AdDescriptorBinding {
@@ -517,46 +514,24 @@ impl AdDescriptorBinding {
   ) -> (Option<vk::DescriptorBufferInfo>, Option<vk::DescriptorImageInfo>) {
     match self {
       AdDescriptorBinding::StorageBuffer(v) => {
-        let buffer_info = v
-          .as_ref()
-          .map(|b| {
-            vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
-          });
-        (buffer_info, None)
+        let buffer_info = vk::DescriptorBufferInfo::default().buffer(v.inner()).offset(0).range(v.size());
+        (Some(buffer_info), None)
       }
       AdDescriptorBinding::UniformBuffer(v) => {
-        let buffer_info = v
-          .as_ref()
-          .map(|b| {
-            vk::DescriptorBufferInfo::default().buffer(b.inner()).offset(0).range(b.size())
-          });
-        (buffer_info, None)
+        let buffer_info = 
+            vk::DescriptorBufferInfo::default().buffer(v.inner()).offset(0).range(v.size());
+        (Some(buffer_info), None)
       }
       AdDescriptorBinding::Image2D(v) => {
-        let image_info = v
-          .as_ref()
-          .map(|id| {
-            vk::DescriptorImageInfo::default().image_view(id.0.inner()).image_layout(id.1)
-          });
-        (None, image_info)
+        let image_info = 
+            vk::DescriptorImageInfo::default().image_view(v.0.inner()).image_layout(v.1);
+        (None, Some(image_info))
       }
       AdDescriptorBinding::Sampler2D(v) => {
-        let image_info = v
-          .as_ref()
-          .map(|id| {
-            vk::DescriptorImageInfo::default().sampler(id.2.inner()).image_view(id.0.inner()).image_layout(id.1)
-          });
-        (None, image_info)
+        let image_info = 
+            vk::DescriptorImageInfo::default().sampler(v.2.inner()).image_view(v.0.inner()).image_layout(v.1);
+        (None, Some(image_info))
       }
-    }
-  }
-
-  pub fn drop_embedded(self) -> Self {
-    match self {
-      Self::StorageBuffer(_x) => Self::StorageBuffer(None),
-      Self::UniformBuffer(_x) => Self::UniformBuffer(None),
-      Self::Image2D(_x) => Self::Image2D(None),
-      Self::Sampler2D(_x) => Self::Sampler2D(None),
     }
   }
 }
@@ -567,16 +542,14 @@ pub struct AdDescriptorSetLayout {
   #[getset(get_copy = "pub")]
   inner: vk::DescriptorSetLayout,
   #[getset(get = "pub")]
-  empty_bindings: Vec<(vk::ShaderStageFlags, AdDescriptorBinding)>,
+  bindings: Vec<(vk::ShaderStageFlags, vk::DescriptorType)>,
 }
 
 impl AdDescriptorSetLayout {
   pub fn new(
     ash_device: Arc<AdAshDevice>,
-    bindings: &[(vk::ShaderStageFlags, AdDescriptorBinding)],
+    bindings: &[(vk::ShaderStageFlags, vk::DescriptorType)],
   ) -> Result<Self, String> {
-    let empty_bindings =
-      bindings.iter().map(|x| (x.0, x.1.clone().drop_embedded())).collect::<Vec<_>>();
     let vk_descriptor_bindings = bindings
       .iter()
       .enumerate()
@@ -584,7 +557,7 @@ impl AdDescriptorSetLayout {
         vk::DescriptorSetLayoutBinding::default()
           .binding(i as u32)
           .stage_flags(binding.0)
-          .descriptor_type(binding.1.get_descriptor_type())
+          .descriptor_type(binding.1)
           .descriptor_count(1)
       })
       .collect::<Vec<_>>();
@@ -595,20 +568,18 @@ impl AdDescriptorSetLayout {
         .inner()
         .create_descriptor_set_layout(&dsl_create_info, None)
         .map_err(|e| format!("at creating vk descriptor set layout: {e}"))?;
-      Ok(AdDescriptorSetLayout { ash_device, inner: descriptor_set_layout, empty_bindings })
+      Ok(AdDescriptorSetLayout { ash_device, inner: descriptor_set_layout, bindings: bindings.to_vec() })
     }
   }
 
-  pub fn new_sparse(ash_device: Arc<AdAshDevice>, bindings: &[(u32, vk::ShaderStageFlags, AdDescriptorBinding)]) -> Result<Self, String> {
-    let empty_bindings =
-      bindings.iter().map(|x| (x.1, x.2.clone().drop_embedded())).collect::<Vec<_>>();
+  pub fn new_sparse(ash_device: Arc<AdAshDevice>, bindings: &[(u32, vk::ShaderStageFlags, vk::DescriptorType)]) -> Result<Self, String> {
     let vk_descriptor_bindings = bindings
       .iter()
       .map(|binding| {
         vk::DescriptorSetLayoutBinding::default()
           .binding(binding.0)
           .stage_flags(binding.1)
-          .descriptor_type(binding.2.get_descriptor_type())
+          .descriptor_type(binding.2)
           .descriptor_count(1)
       })
       .collect::<Vec<_>>();
@@ -619,7 +590,7 @@ impl AdDescriptorSetLayout {
         .inner()
         .create_descriptor_set_layout(&dsl_create_info, None)
         .map_err(|e| format!("at creating vk descriptor set layout: {e}"))?;
-      Ok(AdDescriptorSetLayout { ash_device, inner: descriptor_set_layout, empty_bindings })
+      Ok(AdDescriptorSetLayout { ash_device, inner: descriptor_set_layout, bindings: bindings.iter().map(|x| (x.1, x.2)).collect() })
     }
   }
 }
@@ -690,34 +661,58 @@ pub struct AdDescriptorSet {
 impl AdDescriptorSet {
   pub fn new(
     desc_pool: Arc<AdDescriptorPool>,
-    desc_layouts: &[&Arc<AdDescriptorSetLayout>],
+    desc_data: &[(Arc<AdDescriptorSetLayout>, Vec<AdDescriptorBinding>)],
   ) -> Result<Vec<Self>, String> {
     unsafe {
-      desc_pool
+      let vk_dsets = desc_pool
         .ash_device
         .inner()
         .allocate_descriptor_sets(
           &vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(desc_pool.inner)
-            .set_layouts(&desc_layouts.iter().map(|x| x.inner).collect::<Vec<_>>()),
+            .set_layouts(&desc_data.iter().map(|x| x.0.inner).collect::<Vec<_>>()),
         )
-        .map_err(|e| format!("at allocating vk dsets: {e}"))
-        .map(|vk_dsets| {
-          vk_dsets
-            .iter()
-            .enumerate()
-            .map(|(i, vk_dset)| Self {
-              inner: *vk_dset,
-              bindings: desc_layouts[i]
-                .empty_bindings()
-                .iter()
-                .map(|x| x.1.clone())
-                .collect::<Vec<_>>(),
-              desc_pool: desc_pool.clone(),
-              desc_layout: desc_layouts[i].clone(),
-            })
-            .collect::<Vec<_>>()
+        .map_err(|e| format!("at allocating vk dsets: {e}"))?;
+
+      let dsets = vk_dsets
+        .iter()
+        .enumerate()
+        .map(|(i, vk_dset)| {
+          let mut desc_infos = vec![];
+          let mut write_infos = vec![];
+          for b in desc_data[i].1.iter() {
+            let (b_info, i_info) = b.get_descriptor_info();
+            let b_info = b_info.map(|x| vec![x]).unwrap_or(vec![]);
+            let i_info = i_info.map(|x| vec![x]).unwrap_or(vec![]);
+            desc_infos.push((b_info, i_info));
+          }
+          for (j, b) in desc_data[i].1.iter().enumerate() {
+            let mut write_info = vk::WriteDescriptorSet::default()
+              .dst_set(*vk_dset)
+              .dst_binding(j as _)
+              .descriptor_type(b.get_descriptor_type())
+              .descriptor_count(1);
+
+            if desc_infos[j].0.len() > 0 {
+              write_info = write_info.buffer_info(&desc_infos[j].0);
+            }
+            if desc_infos[j].1.len() > 0 {
+              write_info = write_info.image_info(&desc_infos[j].1);
+            }
+            write_infos.push(write_info);
+          }
+          desc_pool.ash_device.inner().update_descriptor_sets(&write_infos, &[]);
+
+          Self {
+            inner: *vk_dset,
+            bindings: desc_data[i].1.clone(),
+            desc_pool: desc_pool.clone(),
+            desc_layout: desc_data[i].0.clone(),
+          }
         })
+        .collect::<Vec<_>>();
+
+      Ok(dsets)
     }
   }
 

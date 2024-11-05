@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 ash-ad-wrappers = {path = "ash-ad-wrappers"}
-triangle-mesh-renderer = {path = "triangle-mesh-renderer"}
+renderables = {path = "renderables"}
+renderers = {path = "renderers"}
 crossbeam-channel = "0.5"
 spin = "0.9.8"

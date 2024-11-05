@@ -1,8 +1,4 @@
-use std::{
-  collections::HashMap, process::exit, sync::{mpsc, Arc, Mutex, RwLock}, time::Instant
-};
-
-use crossbeam_channel as cc;
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use ash_ad_wrappers::{
   ash_context::{
@@ -15,21 +11,20 @@ use ash_ad_wrappers::{
   ash_surface_wrappers::{AdSwapchain, AdSwapchainDevice},
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
-use triangle_mesh_renderer::{Camera3D, TriMeshRenderer, TriRenderable};
-pub use triangle_mesh_renderer::{glam, TriMeshCPU};
+use renderables::{flat_texture::{FlatTextureGPU, FlatTextureGenerator}, triangle_mesh::{TriMeshGPU, TriMeshGenerator}, Camera3D};
+use renderers::triangle_mesh_renderers::{TriMeshFlatTex, TriMeshTexRenderer};
 
+pub use renderables::glam;
+pub use renderables::triangle_mesh::TriMeshCPU;
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
 
 pub enum RendererMessage {
-  AddTriMesh(String, Arc<TriMeshCPU>, String),
+  AddTriMeshIfNotPresent(String, TriMeshCPU),
+  AddFlatTexIfNotPresent(String, String),
+  AddTriMeshFlatTexToRender(String, String),
   Draw,
   Stop,
-}
-
-pub struct RendererMessageBatch {
-  ordered: bool,
-  batch: Vec<RendererMessage>,
 }
 
 pub struct Renderer {
@@ -46,12 +41,20 @@ impl Renderer {
       let mut render_mgr = RenderManager::new(surface)?;
       loop {
         let mut quit_renderer = false;
-        let mut current_cmds = renderer_ordered_cmds.lock().map_err(|e| format!("memory poisoning: {e}"))?;
+        let mut current_cmds = renderer_ordered_cmds.lock().map_err(|e| format!("at getting lock for renderer work queue: {e}"))?;
         for message in current_cmds.iter() {
           match message {
-            RendererMessage::AddTriMesh(name, tri_mesh_cpu, tex_file) => {
-              let _ = render_mgr.add_tri_mesh(name.to_string(), &tri_mesh_cpu, tex_file.to_string())
+            RendererMessage::AddTriMeshIfNotPresent(name, tri_mesh_cpu) => {
+              let _ = render_mgr.add_tri_mesh(name.to_string(), &tri_mesh_cpu)
                 .inspect_err(|e| eprintln!("error adding mesh: {e}"));
+            },
+            RendererMessage::AddFlatTexIfNotPresent(name, flat_tex_path) => {
+              let _ = render_mgr.add_flat_texture(name.to_string(), flat_tex_path.to_string())
+                .inspect_err(|e| eprintln!("error adding texture: {e}"));
+            },
+            RendererMessage::AddTriMeshFlatTexToRender(mesh_name, tex_name) => {
+              let _ = render_mgr.add_tri_mesh_flat_tex(mesh_name.to_string(), tex_name.to_string())
+                .inspect_err(|e| eprintln!("error adding tri mesh with flat tex to render: {e}"));
             },
             RendererMessage::Draw => {
               for _ in 0..3 {
@@ -79,7 +82,7 @@ impl Renderer {
 
   pub fn send_batch_sync(&mut self, mut batch: Vec<RendererMessage>) -> Result<bool, String> {
     loop {
-      let mut current_cmds = self.ordered_cmds.lock().map_err(|e| format!("memory poisoning: {e}"))?;
+      let mut current_cmds = self.ordered_cmds.lock().map_err(|e| format!("at getting lock for renderer work queue: {e}"))?;
       if current_cmds.len() == 0 {
         current_cmds.append(&mut batch);
         break;
@@ -100,14 +103,21 @@ impl Drop for Renderer {
 }
 
 pub enum RenderObject {
-  TriMesh(Arc<TriRenderable>),
+  TriMeshFlatTex(TriMeshFlatTex),
 }
 
 pub struct RenderManager {
-  render_objects: Vec<Arc<RenderObject>>,
-  camera: Camera3D,
   triangle_frame_buffers: Vec<Arc<AdFrameBuffer>>,
-  triangle_mesh_renderer: TriMeshRenderer,
+
+  tri_mesh_flat_texes: HashMap<String, TriMeshFlatTex>,
+  tri_mesh_tex_renderer: TriMeshTexRenderer,
+
+  flat_texes: HashMap<String, Arc<FlatTextureGPU>>,
+  flat_tex_gen: FlatTextureGenerator,
+  tri_meshes: HashMap<String, Arc<TriMeshGPU>>,
+  tri_mesh_gen: TriMeshGenerator,
+  camera: Camera3D,
+
   gen_allocator: Arc<Mutex<Allocator>>,
   render_semaphores: Vec<AdSemaphore>,
   render_fences: Vec<AdFence>,
@@ -223,13 +233,26 @@ impl RenderManager {
       .collect::<Result<Vec<_>, _>>()?;
 
     let gen_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
+    let tri_mesh_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
+    let flat_tex_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
 
-    let triangle_mesh_renderer = TriMeshRenderer::new(
-      ash_device.clone(),
+    let tri_mesh_gen = TriMeshGenerator::new(
+      tri_mesh_allocator,
       queues[&GPUQueueType::Transfer].clone(),
     )?;
 
-    let mut triangle_frame_buffers = triangle_mesh_renderer.create_framebuffers(
+    let flat_tex_gen = FlatTextureGenerator::new(
+      flat_tex_allocator,
+      queues[&GPUQueueType::Transfer].clone(),
+    )?;
+
+    let tri_mesh_tex_renderer = TriMeshTexRenderer::new(
+      ash_device.clone(),
+      &tri_mesh_gen,
+      &flat_tex_gen,
+    )?;
+
+    let mut triangle_frame_buffers = tri_mesh_tex_renderer.create_framebuffers(
       &render_cmd_buffers[0],
       gen_allocator.clone(),
       swapchain_resolution,
@@ -259,15 +282,44 @@ impl RenderManager {
       render_semaphores,
       render_fences,
       gen_allocator,
-      triangle_mesh_renderer,
       triangle_frame_buffers,
       camera,
-      render_objects: vec![],
+      tri_meshes: HashMap::new(),
+      tri_mesh_gen,
+      tri_mesh_tex_renderer,
+      flat_texes: HashMap::new(),
+      flat_tex_gen,
+      tri_mesh_flat_texes: HashMap::with_capacity(1000),
     })
   }
 
-  pub fn add_tri_mesh(&mut self, name: String, mesh: &TriMeshCPU, tex_path: String) -> Result<(), String> {
-    self.triangle_mesh_renderer.add_renderable(&name, mesh, (&tex_path, &tex_path))?;
+  pub fn add_tri_mesh(&mut self, name: String, mesh: &TriMeshCPU) -> Result<Arc<TriMeshGPU>, String> {
+    let s_time = std::time::Instant::now();
+    let tri_mesh_gpu = self
+      .tri_meshes
+      .entry(name.clone())
+      .or_insert(Arc::new(self.tri_mesh_gen.upload_tri_mesh(&name, mesh)?));
+    println!("mesh {} upload time: {}ms", &name, s_time.elapsed().as_millis());
+    Ok(tri_mesh_gpu.clone())
+  }
+
+  pub fn add_flat_texture(&mut self, name: String, tex_path: String) -> Result<Arc<FlatTextureGPU>, String> {
+    let s_time = std::time::Instant::now();
+    let flat_tex_gpu = self
+      .flat_texes
+      .entry(name.clone())
+      .or_insert(Arc::new(self.flat_tex_gen.upload_flat_texture(&name, &tex_path)?));
+    println!("tex {} upload time: {}ms", &name, s_time.elapsed().as_millis());
+    Ok(flat_tex_gpu.clone())
+  }
+
+  pub fn add_tri_mesh_flat_tex(&mut self, mesh_name: String, tex_name: String) -> Result<(), String> {
+    let tri_mesh = self.tri_meshes.get(&mesh_name).ok_or(format!("can't find mesh {}", &mesh_name))?;
+    let flat_tex = self.flat_texes.get(&tex_name).ok_or(format!("can't find tex {}", &tex_name))?;
+    self
+      .tri_mesh_flat_texes
+      .entry(format!("{}::{}", &mesh_name, &tex_name))
+      .or_insert(TriMeshFlatTex { mesh: tri_mesh.clone(), ftex: flat_tex.clone() });
     Ok(())
   }
 
@@ -312,7 +364,7 @@ impl RenderManager {
     if current_sc_res.height != triangle_out_image_res.height
       || current_sc_res.width != triangle_out_image_res.width
     {
-      self.triangle_frame_buffers = self.triangle_mesh_renderer.create_framebuffers(
+      self.triangle_frame_buffers = self.tri_mesh_tex_renderer.create_framebuffers(
         &self.render_cmd_buffers[0],
         self.gen_allocator.clone(),
         current_sc_res,
@@ -339,10 +391,11 @@ impl RenderManager {
       .begin(vk::CommandBufferUsageFlags::default())
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
 
-    self.triangle_mesh_renderer.render_meshes(
+    self.tri_mesh_tex_renderer.render(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
       self.camera,
+      &self.tri_mesh_flat_texes.iter().map(|x| x.1).collect::<Vec<_>>()
     );
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
