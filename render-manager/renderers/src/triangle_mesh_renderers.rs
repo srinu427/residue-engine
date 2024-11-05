@@ -1,7 +1,24 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+  collections::HashMap,
+  sync::{Arc, Mutex},
+};
 
-use ash_ad_wrappers::{ash_context::{ash::vk, gpu_allocator::{vulkan::Allocator, MemoryLocation}, AdAshDevice}, ash_data_wrappers::{AdBuffer, AdImage, AdImageView}, ash_queue_wrappers::AdCommandBuffer, ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass}, ash_sync_wrappers::AdFence};
-use renderables::{flat_texture::{FlatTextureGPU, FlatTextureGenerator}, triangle_mesh::{TriMeshGPU, TriMeshGenerator}, Camera3D};
+use ash_ad_wrappers::{
+  ash_context::{
+    ash::vk,
+    gpu_allocator::{vulkan::Allocator, MemoryLocation},
+    AdAshDevice,
+  },
+  ash_data_wrappers::{AdBuffer, AdImage, AdImageView},
+  ash_queue_wrappers::AdCommandBuffer,
+  ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass},
+  ash_sync_wrappers::AdFence,
+};
+use renderables::{
+  flat_texture::{FlatTextureGPU, FlatTextureGenerator},
+  triangle_mesh::{TriMeshGPU, TriMeshGenerator},
+  Camera3D,
+};
 
 static VERT_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle.vert.spv");
 static FRAG_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle_flat_tex.frag.spv");
@@ -173,7 +190,7 @@ impl TriMeshTexRenderer {
     cmd_buffer: &AdCommandBuffer,
     frame_buffer: &AdFrameBuffer,
     camera: Camera3D,
-    objs: &[&TriMeshFlatTex],
+    objs: &[(Arc<TriMeshGPU>, Arc<FlatTextureGPU>)],
   ) {
     cmd_buffer.begin_render_pass(
       self.render_pass.inner(),
@@ -201,14 +218,14 @@ impl TriMeshTexRenderer {
       cmd_buffer.bind_descriptor_sets(
         vk::PipelineBindPoint::GRAPHICS,
         self.pipelines[0].layout(),
-        &[obj.mesh.dset().inner(), obj.ftex.dset().inner()],
+        &[obj.0.dset().inner(), obj.1.dset().inner()],
       );
       cmd_buffer.set_push_constant_data(
         self.pipelines[0].layout(),
         vk::ShaderStageFlags::VERTEX,
-        AdBuffer::get_byte_slice(&[camera])
+        AdBuffer::get_byte_slice(&[camera]),
       );
-      cmd_buffer.draw(obj.mesh.indx_count() as _);
+      cmd_buffer.draw(obj.0.indx_count() as _);
     }
     cmd_buffer.end_render_pass();
   }

@@ -1,5 +1,3 @@
 mod collision;
 
-pub struct PhysicsObject {
-
-}
+pub struct PhysicsObject {}

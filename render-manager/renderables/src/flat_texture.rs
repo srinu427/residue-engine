@@ -1,6 +1,17 @@
 use std::sync::{Arc, Mutex};
 
-use ash_ad_wrappers::{ash_context::{ash::vk, getset, gpu_allocator::{vulkan::Allocator, MemoryLocation}}, ash_data_wrappers::{AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdImage, AdImageView, AdSampler}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue}};
+use ash_ad_wrappers::{
+  ash_context::{
+    ash::vk,
+    getset,
+    gpu_allocator::{vulkan::Allocator, MemoryLocation},
+  },
+  ash_data_wrappers::{
+    AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout, AdImage,
+    AdImageView, AdSampler,
+  },
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
+};
 
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct FlatTextureGPU {
@@ -25,11 +36,14 @@ impl FlatTextureGenerator {
       ash_device.clone(),
       vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
       1000,
-      &[vk::DescriptorPoolSize{ ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER, descriptor_count: 1000 },]
+      &[vk::DescriptorPoolSize {
+        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+        descriptor_count: 1000,
+      }],
     )?;
     let dset_layout = AdDescriptorSetLayout::new(
       ash_device.clone(),
-      &[(vk::ShaderStageFlags::FRAGMENT, vk::DescriptorType::COMBINED_IMAGE_SAMPLER)]
+      &[(vk::ShaderStageFlags::FRAGMENT, vk::DescriptorType::COMBINED_IMAGE_SAMPLER)],
     )?;
     let cmd_pool = AdCommandPool::new(queue, vk::CommandPoolCreateFlags::TRANSIENT)?;
     let sampler = AdSampler::new(ash_device.clone())?;
@@ -44,7 +58,8 @@ impl FlatTextureGenerator {
 
   pub fn upload_flat_texture(&self, name: &str, path: &str) -> Result<FlatTextureGPU, String> {
     let ash_device = self.cmd_pool.queue().ash_device().clone();
-    let cmd_buffer = AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
+    let cmd_buffer =
+      AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
     let tex_image = AdImage::new_2d_from_file(
       ash_device.clone(),
       self.allocator.clone(),
@@ -53,7 +68,7 @@ impl FlatTextureGenerator {
       vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
       path,
       &cmd_buffer,
-      vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+      vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
     )?;
     let tex_image_view = AdImageView::create_view(
       tex_image,
@@ -63,19 +78,20 @@ impl FlatTextureGenerator {
         base_mip_level: 0,
         level_count: 1,
         base_array_layer: 0,
-        layer_count: 1
-      }
+        layer_count: 1,
+      },
     )?;
 
     let tex_dset = AdDescriptorSet::new(
       self.tex_dset_pool.clone(),
       &[(
-          self.tex_dset_layout.clone(),
-          vec![AdDescriptorBinding::Sampler2D((
-            tex_image_view,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            self.sampler.clone()))]
-        )]
+        self.tex_dset_layout.clone(),
+        vec![AdDescriptorBinding::Sampler2D((
+          tex_image_view,
+          vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+          self.sampler.clone(),
+        ))],
+      )],
     )?
     .remove(0);
 

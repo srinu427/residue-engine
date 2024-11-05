@@ -1,4 +1,5 @@
-use render_manager::{glam, AdAshInstance, AdSurface, AdSurfaceInstance, Renderer, RendererMessage, TriMeshCPU};
+use game_logic::Game;
+use render_manager::{AdAshInstance, AdSurface, AdSurfaceInstance};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -8,72 +9,47 @@ use winit::window::{Window, WindowAttributes, WindowId};
 pub struct AppActivity {
   surface: Option<Arc<AdSurface>>,
   window: Option<Window>,
-  render_manager: Option<Renderer>,
+  game: Option<Game>,
   ash_instance: Arc<AdAshInstance>,
 }
 
 impl AppActivity {
   pub fn new() -> Result<Self, String> {
     let ash_instance = Arc::new(AdAshInstance::new()?);
-    Ok(Self { ash_instance, window: None, render_manager: None, surface: None })
+    Ok(Self { ash_instance, window: None, game: None, surface: None })
   }
 }
 
 impl ApplicationHandler for AppActivity {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     if self.window.is_none() {
-      match event_loop.create_window(WindowAttributes::default()) {
-        Ok(w) => {
-          let surface_instance = Arc::new(AdSurfaceInstance::new(self.ash_instance.clone()));
-          let surface = match AdSurface::new(surface_instance, &w) {
-            Ok(x) => Arc::new(x),
-            Err(e) => {
-              eprintln!("error creating surface: {e}");
-              event_loop.exit();
-              return;
-            }
-          };
-          let mut renderer =
-            match Renderer::new(surface.clone()) {
-              Ok(x) => x,
-              Err(e) => {
-                eprintln!("error creating window: {e}");
-                event_loop.exit();
-                return;
-              }
-            };
-          let tri_verts_cpu = TriMeshCPU::make_cuboid(
-            glam::vec3(0.0, 0.0, 0.0),
-            glam::vec3(1.0, 0.0, 0.0),
-            glam::vec3(0.0, 1.0, 0.0),
-            1.0,
-          );
-          let _ = renderer.send_batch_sync(
-            vec![
-              RendererMessage::AddTriMeshIfNotPresent(
-                "triangle_main".to_string(),
-                tri_verts_cpu,
-              ),
-              RendererMessage::AddFlatTexIfNotPresent(
-                "./background.png".to_string(),
-                "./background.png".to_string(),
-              ),
-              RendererMessage::AddTriMeshFlatTexToRender(
-                "triangle_main".to_string(),
-                "./background.png".to_string(),
-              ),
-            ])
-            .inspect_err(|e| println!("at sending work to renderer: {e}"));
-        
-          self.surface = Some(surface);
-          self.window = Some(w);
-          self.render_manager = Some(renderer);
+      let Ok(w) = event_loop
+        .create_window(WindowAttributes::default())
+        .inspect_err(|e| eprintln!("error creating window: {e}")) else {
+        event_loop.exit();
+        return
+      };
+
+      let surface_instance = Arc::new(AdSurfaceInstance::new(self.ash_instance.clone()));
+      let surface = match AdSurface::new(surface_instance, &w) {
+        Ok(x) => Arc::new(x),
+        Err(e) => {
+          eprintln!("error creating surface: {e}");
+          event_loop.exit();
+          return;
         }
+      };
+      let game = match Game::new(surface.clone()) {
+        Ok(x) => x,
         Err(e) => {
           eprintln!("error creating window: {e}");
-          event_loop.exit()
+          event_loop.exit();
+          return;
         }
-      }
+      };
+      self.surface = Some(surface);
+      self.window = Some(w);
+      self.game = Some(game);
     }
   }
 
@@ -117,20 +93,12 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::ThemeChanged(_) => {}
       WindowEvent::Occluded(_) => {}
       WindowEvent::RedrawRequested => {
-        self.render_manager.as_mut().map(|x| {
-          let _ = x
-            .send_batch_sync(vec![RendererMessage::Draw])
-            .inspect_err(|e| eprintln!("at sending draw message: {e}"));
-        });
+        self.game.as_mut().map(|x| { x.update() });
       }
     }
   }
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    self.render_manager.as_mut().map(|x| {
-      let _ = x
-        .send_batch_sync(vec![RendererMessage::Draw])
-        .inspect_err(|e| eprintln!("at sending draw message: {e}"));
-    });
+    self.game.as_mut().map(|x| { x.update() });
   }
 }

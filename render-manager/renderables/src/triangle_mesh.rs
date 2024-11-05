@@ -1,6 +1,17 @@
 use std::sync::{Arc, Mutex};
 
-use ash_ad_wrappers::{ash_context::{ash::vk, getset, gpu_allocator::{vulkan::Allocator, MemoryLocation}}, ash_data_wrappers::{AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout}, ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue}, ash_sync_wrappers::AdFence};
+use ash_ad_wrappers::{
+  ash_context::{
+    ash::vk,
+    getset,
+    gpu_allocator::{vulkan::Allocator, MemoryLocation},
+  },
+  ash_data_wrappers::{
+    AdBuffer, AdDescriptorBinding, AdDescriptorPool, AdDescriptorSet, AdDescriptorSetLayout,
+  },
+  ash_queue_wrappers::{AdCommandBuffer, AdCommandPool, AdQueue},
+  ash_sync_wrappers::AdFence,
+};
 
 pub fn g_vec4_from_vec3(v: glam::Vec3, w: f32) -> glam::Vec4 {
   glam::vec4(v.x, v.y, v.z, w)
@@ -41,31 +52,36 @@ impl TriMeshCPU {
     let normal = tangent.cross(bitangent).normalize();
     let verts = vec![
       TriMeshVertex {
-        pos: g_vec4_from_vec3(center - tangent/2.0 + bitangent/2.0, 1.0),
+        pos: g_vec4_from_vec3(center - tangent / 2.0 + bitangent / 2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(0.0, 0.0, 0.0, 0.0)
+        uv: glam::vec4(0.0, 0.0, 0.0, 0.0),
       },
       TriMeshVertex {
-        pos: g_vec4_from_vec3(center - tangent/2.0 - bitangent/2.0, 1.0),
+        pos: g_vec4_from_vec3(center - tangent / 2.0 - bitangent / 2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(0.0, bitangent.length() * 2.0, 0.0, 0.0)
+        uv: glam::vec4(0.0, bitangent.length() * 2.0, 0.0, 0.0),
       },
       TriMeshVertex {
-        pos: g_vec4_from_vec3(center + tangent/2.0 - bitangent/2.0, 1.0),
+        pos: g_vec4_from_vec3(center + tangent / 2.0 - bitangent / 2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(tangent.length() * 2.0, bitangent.length() * 2.0, 0.0, 0.0)
+        uv: glam::vec4(tangent.length() * 2.0, bitangent.length() * 2.0, 0.0, 0.0),
       },
       TriMeshVertex {
-        pos: g_vec4_from_vec3(center + tangent/2.0 + bitangent/2.0, 1.0),
+        pos: g_vec4_from_vec3(center + tangent / 2.0 + bitangent / 2.0, 1.0),
         normal: g_vec4_from_vec3(normal, 1.0),
-        uv: glam::vec4(tangent.length() * 2.0, 0.0, 0.0, 0.0)
+        uv: glam::vec4(tangent.length() * 2.0, 0.0, 0.0, 0.0),
       },
     ];
     let triangles = vec![[0, 1, 2], [2, 3, 0]];
     Self { verts, triangles }
   }
 
-  pub fn make_cuboid(center: glam::Vec3, axis_x: glam::Vec3, axis_y: glam::Vec3, z_len: f32) -> Self {
+  pub fn make_cuboid(
+    center: glam::Vec3,
+    axis_x: glam::Vec3,
+    axis_y: glam::Vec3,
+    z_len: f32,
+  ) -> Self {
     let axis_z = axis_x.cross(axis_y).normalize() * z_len;
     Self { verts: vec![], triangles: vec![] }
       .merge(Self::make_rect(center + (axis_x / 2.0), axis_y, axis_z))
@@ -82,7 +98,7 @@ pub struct TriMeshGPU {
   #[getset(get = "pub")]
   dset: Arc<AdDescriptorSet>,
   #[getset(get_copy = "pub")]
-  indx_count: usize
+  indx_count: usize,
 }
 
 #[derive(getset::Getters, getset::CopyGetters)]
@@ -102,9 +118,9 @@ impl TriMeshGenerator {
       vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
       3000,
       &[
-        vk::DescriptorPoolSize{ ty: vk::DescriptorType::STORAGE_BUFFER, descriptor_count: 2000 },
-        vk::DescriptorPoolSize{ ty: vk::DescriptorType::UNIFORM_BUFFER, descriptor_count: 1000 },
-      ]
+        vk::DescriptorPoolSize { ty: vk::DescriptorType::STORAGE_BUFFER, descriptor_count: 2000 },
+        vk::DescriptorPoolSize { ty: vk::DescriptorType::UNIFORM_BUFFER, descriptor_count: 1000 },
+      ],
     )?;
     let dset_layout = AdDescriptorSetLayout::new(
       ash_device.clone(),
@@ -112,7 +128,7 @@ impl TriMeshGenerator {
         (vk::ShaderStageFlags::VERTEX, vk::DescriptorType::STORAGE_BUFFER),
         (vk::ShaderStageFlags::VERTEX, vk::DescriptorType::STORAGE_BUFFER),
         (vk::ShaderStageFlags::VERTEX, vk::DescriptorType::UNIFORM_BUFFER),
-      ]
+      ],
     )?;
     let cmd_pool = AdCommandPool::new(queue, vk::CommandPoolCreateFlags::TRANSIENT)?;
     Ok(Self {
@@ -129,7 +145,8 @@ impl TriMeshGenerator {
     tri_mesh_cpu: &TriMeshCPU,
   ) -> Result<TriMeshGPU, String> {
     let ash_device = self.cmd_pool.queue().ash_device().clone();
-    let cmd_buffer = AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
+    let cmd_buffer =
+      AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
 
     let vert_buffer_data = AdBuffer::get_byte_slice(&tri_mesh_cpu.verts);
     let vert_buffer = AdBuffer::new(
@@ -220,19 +237,17 @@ impl TriMeshGenerator {
 
     let mesh_dset = AdDescriptorSet::new(
       self.mesh_dset_pool.clone(),
-      &[
-        (
-          self.mesh_dset_layout.clone(),
-          vec![
-            AdDescriptorBinding::StorageBuffer(Arc::new(vert_buffer)),
-            AdDescriptorBinding::StorageBuffer(Arc::new(indx_buffer)),
-            AdDescriptorBinding::UniformBuffer(Arc::new(objt_buffer)),
-          ]
-        )
-      ]
+      &[(
+        self.mesh_dset_layout.clone(),
+        vec![
+          AdDescriptorBinding::StorageBuffer(Arc::new(vert_buffer)),
+          AdDescriptorBinding::StorageBuffer(Arc::new(indx_buffer)),
+          AdDescriptorBinding::UniformBuffer(Arc::new(objt_buffer)),
+        ],
+      )],
     )?
     .remove(0);
 
-    Ok(TriMeshGPU { dset: Arc::new(mesh_dset), indx_count:  tri_mesh_cpu.triangles.len() * 3 })
+    Ok(TriMeshGPU { dset: Arc::new(mesh_dset), indx_count: tri_mesh_cpu.triangles.len() * 3 })
   }
 }
