@@ -24,7 +24,7 @@ pub struct TriMeshVertex {
   pub uv: glam::Vec4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TriMeshTransform {
   pub transform: glam::Mat4,
@@ -101,6 +101,16 @@ pub struct TriMeshGPU {
   indx_count: usize,
 }
 
+impl TriMeshGPU {
+  pub fn update_transform(&self, t: TriMeshTransform) -> Result<(), String> {
+    let AdDescriptorBinding::UniformBuffer(ob) = &self.dset.bindings()[2] else {
+      return Err(format!("Triangle mesh constructed with improper object data buffer"))
+    };
+    ob.write_data(0, &[t])?;
+    Ok(())
+  }
+}
+
 #[derive(getset::Getters, getset::CopyGetters)]
 pub struct TriMeshGenerator {
   allocator: Arc<Mutex<Allocator>>,
@@ -158,7 +168,7 @@ impl TriMeshGenerator {
       vert_buffer_data.len() as _,
       vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
     )?;
-    let mut vert_buffer_stage = AdBuffer::new(
+    let vert_buffer_stage = AdBuffer::new(
       ash_device.clone(),
       self.allocator.clone(),
       MemoryLocation::CpuToGpu,
@@ -179,7 +189,7 @@ impl TriMeshGenerator {
       vert_buffer_data.len() as _,
       vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
     )?;
-    let mut indx_buffer_stage = AdBuffer::new(
+    let indx_buffer_stage = AdBuffer::new(
       ash_device.clone(),
       self.allocator.clone(),
       MemoryLocation::CpuToGpu,
@@ -195,22 +205,13 @@ impl TriMeshGenerator {
     let objt_buffer = AdBuffer::new(
       ash_device.clone(),
       self.allocator.clone(),
-      MemoryLocation::GpuOnly,
+      MemoryLocation::CpuToGpu,
       &format!("{name}_ob"),
       vk::BufferCreateFlags::empty(),
       vert_buffer_data.len() as _,
       vk::BufferUsageFlags::UNIFORM_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
     )?;
-    let mut objt_buffer_stage = AdBuffer::new(
-      ash_device.clone(),
-      self.allocator.clone(),
-      MemoryLocation::CpuToGpu,
-      &format!("{name}_ob_stage"),
-      vk::BufferCreateFlags::empty(),
-      vert_buffer_data.len() as _,
-      vk::BufferUsageFlags::TRANSFER_SRC,
-    )?;
-    objt_buffer_stage.write_data(0, objt_buffer_data)?;
+    objt_buffer.write_data(0, objt_buffer_data)?;
 
     // Copy from stage buffers to gpu local
     cmd_buffer.begin(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)?;
@@ -223,11 +224,6 @@ impl TriMeshGenerator {
       indx_buffer_stage.inner(),
       indx_buffer.inner(),
       &[vk::BufferCopy { src_offset: 0, dst_offset: 0, size: indx_buffer.size() }],
-    );
-    cmd_buffer.copy_buffer_to_buffer_cmd(
-      objt_buffer_stage.inner(),
-      objt_buffer.inner(),
-      &[vk::BufferCopy { src_offset: 0, dst_offset: 0, size: objt_buffer.size() }],
     );
     cmd_buffer.end()?;
 

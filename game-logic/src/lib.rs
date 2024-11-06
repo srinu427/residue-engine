@@ -1,12 +1,27 @@
 use std::sync::{Arc, RwLock};
 
-use render_manager::{AdSurface, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU};
+use render_manager::{AdSurface, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod physics;
 
 pub struct GameObject {
   pub display_mesh: Arc<RwLock<Option<Arc<TriMeshGPU>>>>,
   pub display_tex: Arc<RwLock<Option<Arc<FlatTextureGPU>>>>,
+  pub object_transform: TriMeshTransform,
+}
+
+impl GameObject {
+  pub fn update(&mut self, frame_time: u128) -> Result<(), String> {
+    let rot_mat = glam::Mat4::from_rotation_y(frame_time as f32/ 1000.0);
+    self.object_transform.transform = self.object_transform.transform * rot_mat;
+    self
+        .display_mesh
+        .read()
+        .map_err(|e| format!("at locking mesh to render: {e}"))?
+        .as_ref()
+        .map(|mesh| mesh.update_transform(self.object_transform).inspect_err(|e| eprintln!("at obj transform update: {e}")));
+    Ok(())
+  }
 }
 
 pub struct Game {
@@ -29,6 +44,7 @@ impl Game {
     let game_obj = GameObject {
       display_mesh: Arc::new(RwLock::new(None)),
       display_tex: Arc::new(RwLock::new(None)),
+      object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY }
     };
     renderer
       .send_batch_sync(vec![
@@ -53,6 +69,9 @@ impl Game {
     self.last_update = current_dur;
 
     let mut mesh_ftex_list = vec![];
+    for go in self.game_objects.iter_mut() {
+      go.update(frame_time)?;
+    }
     for go in self.game_objects.iter() {
       let Some(mesh) = go
         .display_mesh
@@ -62,7 +81,7 @@ impl Game {
       let Some(ftex) = go
         .display_tex
         .read()
-        .map_err(|e| format!("at locking mesh to render: {e}"))?
+        .map_err(|e| format!("at locking tex to render: {e}"))?
         .clone() else { continue; };
       mesh_ftex_list.push((mesh, ftex));
     }

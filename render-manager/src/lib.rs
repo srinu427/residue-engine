@@ -24,7 +24,7 @@ use renderers::triangle_mesh_renderers::TriMeshTexRenderer;
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
 pub use renderables::glam;
-pub use renderables::triangle_mesh::{TriMeshCPU, TriMeshGPU};
+pub use renderables::triangle_mesh::{TriMeshCPU, TriMeshGPU, TriMeshTransform};
 pub use renderables::flat_texture::FlatTextureGPU;
 
 pub enum RendererMessage {

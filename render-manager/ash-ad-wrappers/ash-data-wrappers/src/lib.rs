@@ -141,7 +141,7 @@ impl AdBuffer {
   ) -> Result<AdBuffer, String> {
     let data = Self::get_byte_slice(struct_slice);
 
-    let mut buffer = Self::new(
+    let buffer = Self::new(
       ash_device.clone(),
       allocator.clone(),
       mem_location,
@@ -152,7 +152,7 @@ impl AdBuffer {
     )?;
 
     if mem_location == MemoryLocation::GpuOnly {
-      let mut stage_buffer = Self::new(
+      let stage_buffer = Self::new(
         ash_device.clone(),
         allocator.clone(),
         MemoryLocation::CpuToGpu,
@@ -181,7 +181,7 @@ impl AdBuffer {
     Ok(buffer)
   }
 
-  pub fn write_data<T>(&mut self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
+  pub fn write_data<T>(&self, offset: usize, struct_slice: &[T]) -> Result<(), String> {
     let data = Self::get_byte_slice(struct_slice);
     if offset + data.len() > self.size as usize {
       return Err(format!("buffer {} only supports {} bytes", &self.name, self.size));
@@ -297,7 +297,7 @@ impl AdImage {
     let image_info = image::open(file_path).map_err(|e| format!("at loading file: {e}"))?;
     let image_rgba8 = image_info.to_rgba8();
 
-    let mut stage_buffer = AdBuffer::new(
+    let stage_buffer = AdBuffer::new(
       ash_device.clone(),
       allocator.clone(),
       MemoryLocation::CpuToGpu,
