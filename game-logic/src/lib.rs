@@ -18,7 +18,7 @@ pub struct GameObject {
 impl GameObject {
   pub fn update(&mut self, frame_time: u128) -> Result<(), String> {
     self.animation_time += frame_time;
-    let y_angle = self.rotation_animation.value_at(self.animation_time % 6000);
+    let y_angle = self.rotation_animation.value_at(self.animation_time % 5000);
     self.object_transform.transform = glam::Mat4::from_rotation_y(y_angle);
     // let rot_mat = glam::Mat4::from_rotation_y(frame_time as f32/ 500.0);
     // self.object_transform.transform = self.object_transform.transform * rot_mat;
@@ -58,7 +58,7 @@ impl Game {
       display_tex: Arc::new(RwLock::new(None)),
       object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
       animation_time: 0,
-      rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (3000, 6.28), (6000, 0.0)] },
+      rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (2000, 360f32.to_radians()), (4000, 0.0)] },
     };
     renderer
       .send_batch_sync(vec![
