@@ -1,5 +1,7 @@
 use game_logic::Game;
+use input_aggregator::InputAggregator;
 use render_manager::{AdAshInstance, AdSurface, AdSurfaceInstance};
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -10,13 +12,20 @@ pub struct AppActivity {
   surface: Option<Arc<AdSurface>>,
   window: Option<Window>,
   game: Option<Game>,
+  input_aggregator: InputAggregator,
   ash_instance: Arc<AdAshInstance>,
 }
 
 impl AppActivity {
   pub fn new() -> Result<Self, String> {
     let ash_instance = Arc::new(AdAshInstance::new()?);
-    Ok(Self { ash_instance, window: None, game: None, surface: None })
+    Ok(Self {
+      ash_instance,
+      input_aggregator: InputAggregator::new(),
+      window: None,
+      game: None,
+      surface: None,
+    })
   }
 }
 
@@ -74,7 +83,16 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::HoveredFile(_) => {}
       WindowEvent::HoveredFileCancelled => {}
       WindowEvent::Focused(_) => {}
-      WindowEvent::KeyboardInput { .. } => {}
+      WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+        match event.state {
+          winit::event::ElementState::Pressed => {
+            self.input_aggregator.update_key_pressed(event.key_without_modifiers());
+          },
+          winit::event::ElementState::Released => {
+            self.input_aggregator.update_key_released(event.key_without_modifiers());
+          },
+        }
+      }
       WindowEvent::ModifiersChanged(_) => {}
       WindowEvent::Ime(_) => {}
       WindowEvent::CursorMoved { .. } => {}
@@ -93,12 +111,12 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::ThemeChanged(_) => {}
       WindowEvent::Occluded(_) => {}
       WindowEvent::RedrawRequested => {
-        self.game.as_mut().map(|x| { x.update() });
+        self.game.as_mut().map(|x| { x.update(&self.input_aggregator) });
       }
     }
   }
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    self.game.as_mut().map(|x| { x.update() });
+    self.game.as_mut().map(|x| { x.update(&self.input_aggregator) });
   }
 }

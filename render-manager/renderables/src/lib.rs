@@ -13,6 +13,12 @@ pub struct Camera3D {
 }
 
 impl Camera3D {
+  pub fn new(pos: glam::Vec4, look_dir: glam::Vec4, fov: f32) -> Self {
+    let mut cam = Camera3D { pos, look_dir, view_proj_mat: glam::Mat4::IDENTITY };
+    cam.refresh_vp_matrix(fov, 1.0);
+    cam
+  }
+
   pub fn refresh_vp_matrix(&mut self, fov: f32, aspect_ratio: f32) {
     self.view_proj_mat = glam::Mat4::perspective_rh(fov, aspect_ratio, 1.0, 1000.0)
       * glam::Mat4::look_at_rh(

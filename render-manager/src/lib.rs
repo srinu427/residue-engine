@@ -17,19 +17,19 @@ use ash_ad_wrappers::{
 use renderables::{
   flat_texture::FlatTextureGenerator,
   triangle_mesh::TriMeshGenerator,
-  Camera3D,
 };
 use renderers::triangle_mesh_renderers::TriMeshTexRenderer;
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
-pub use renderables::glam;
+pub use renderables::{glam, Camera3D};
 pub use renderables::triangle_mesh::{TriMeshCPU, TriMeshGPU, TriMeshTransform};
 pub use renderables::flat_texture::FlatTextureGPU;
 
 pub enum RendererMessage {
   UploadTriMesh(String, TriMeshCPU, Arc<RwLock<Option<Arc<TriMeshGPU>>>>),
   UploadFlatTex(String, String, Arc<RwLock<Option<Arc<FlatTextureGPU>>>>),
+  SetCamera(Camera3D),
   Draw(Vec<(Arc<TriMeshGPU>, Arc<FlatTextureGPU>)>),
   Stop,
 }
@@ -75,6 +75,9 @@ impl Renderer {
             RendererMessage::Stop => {
               quit_renderer = true;
             }
+            RendererMessage::SetCamera(camera3_d) =>{
+              render_mgr.camera = camera3_d
+            },
           }
         }
         current_cmds.clear();
@@ -191,7 +194,7 @@ impl RenderManager {
       .unwrap_or(surface_formats[0]);
     let present_mode = surface_present_modes
       .iter()
-      .find(|m| **m == vk::PresentModeKHR::IMMEDIATE)
+      .find(|m| **m == vk::PresentModeKHR::MAILBOX)
       .cloned()
       .unwrap_or(vk::PresentModeKHR::FIFO);
 

@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-winit = { version = "0.30.0", features = ["rwh_06"] }
+winit = { version = "0.30.5", features = ["rwh_06"] }
 render-manager = {path = "render-manager"}
 wgpu-render-mgr = {path = "wgpu-render-mgr"}
+input-aggregator = {path = "input-aggregator"}
 game-logic = {path = "game-logic"}

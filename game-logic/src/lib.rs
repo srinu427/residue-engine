@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
-use render_manager::{AdSurface, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
+use input_aggregator::{InputAggregator, Key};
+use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod physics;
 
@@ -15,11 +16,11 @@ impl GameObject {
     let rot_mat = glam::Mat4::from_rotation_y(frame_time as f32/ 1000.0);
     self.object_transform.transform = self.object_transform.transform * rot_mat;
     self
-        .display_mesh
-        .read()
-        .map_err(|e| format!("at locking mesh to render: {e}"))?
-        .as_ref()
-        .map(|mesh| mesh.update_transform(self.object_transform).inspect_err(|e| eprintln!("at obj transform update: {e}")));
+      .display_mesh
+      .read()
+      .map_err(|e| format!("at locking mesh to render: {e}"))?
+      .as_ref()
+      .map(|mesh| mesh.update_transform(self.object_transform).inspect_err(|e| eprintln!("at obj transform update: {e}")));
     Ok(())
   }
 }
@@ -27,6 +28,7 @@ impl GameObject {
 pub struct Game {
   renderer: Renderer,
   game_objects: Vec<GameObject>,
+  camera: Camera3D,
   start_time: std::time::Instant,
   last_update: std::time::Duration,
 }
@@ -60,10 +62,20 @@ impl Game {
         ),
       ])
       .map_err(|e| format!("at sending work to renderer: {e}"))?;
-    Ok(Self { renderer, game_objects: vec![game_obj], start_time, last_update: start_time.elapsed() })
+    Ok(Self {
+      renderer,
+      game_objects: vec![game_obj],
+      start_time,
+      last_update: start_time.elapsed(),
+      camera: Camera3D::new(
+        glam::vec4(2.0, 2.0, 2.0, 1.0),
+        glam::vec4(-1.0, -1.0, -1.0, 1.0),
+        1.0
+      )
+    })
   }
 
-  pub fn update(&mut self) -> Result<(), String> {
+  pub fn update(&mut self, inputs: &InputAggregator) -> Result<(), String> {
     let current_dur = self.start_time.elapsed();
     let frame_time = current_dur.as_millis() - self.last_update.as_millis();
     self.last_update = current_dur;
@@ -77,15 +89,24 @@ impl Game {
         .display_mesh
         .read()
         .map_err(|e| format!("at locking mesh to render: {e}"))?
-        .clone() else { continue; };
+        .clone() else { continue };
       let Some(ftex) = go
         .display_tex
         .read()
         .map_err(|e| format!("at locking tex to render: {e}"))?
-        .clone() else { continue; };
+        .clone() else { continue };
       mesh_ftex_list.push((mesh, ftex));
     }
-    self.renderer.send_batch_sync(vec![RendererMessage::Draw(mesh_ftex_list)])?;
+    if inputs.is_key_pressed(Key::Character("a".into())).is_pressed() {
+      self.camera.pos += glam::vec4(-1.0, 0.0, 1.0, 0.0) * frame_time as f32/500.0;
+    }
+    if inputs.is_key_pressed(Key::Character("d".into())).is_pressed() {
+      self.camera.pos -= glam::vec4(-1.0, 0.0, 1.0, 0.0) * frame_time as f32/500.0;
+    }
+    self.renderer.send_batch_sync(vec![
+      RendererMessage::SetCamera(self.camera),
+      RendererMessage::Draw(mesh_ftex_list),
+    ])?;
     Ok(())
   }
 }
