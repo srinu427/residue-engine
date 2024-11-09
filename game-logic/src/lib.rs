@@ -1,26 +1,36 @@
 use std::sync::{Arc, RwLock};
 
+use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
+mod animation;
 mod physics;
 
 pub struct GameObject {
   pub display_mesh: Arc<RwLock<Option<Arc<TriMeshGPU>>>>,
   pub display_tex: Arc<RwLock<Option<Arc<FlatTextureGPU>>>>,
+  pub animation_time: u128,
+  pub rotation_animation: KeyFramed<f32>,
   pub object_transform: TriMeshTransform,
 }
 
 impl GameObject {
   pub fn update(&mut self, frame_time: u128) -> Result<(), String> {
-    let rot_mat = glam::Mat4::from_rotation_y(frame_time as f32/ 1000.0);
-    self.object_transform.transform = self.object_transform.transform * rot_mat;
+    self.animation_time += frame_time;
+    let y_angle = self.rotation_animation.value_at(self.animation_time % 6000);
+    self.object_transform.transform = glam::Mat4::from_rotation_y(y_angle);
+    // let rot_mat = glam::Mat4::from_rotation_y(frame_time as f32/ 500.0);
+    // self.object_transform.transform = self.object_transform.transform * rot_mat;
     self
       .display_mesh
       .read()
       .map_err(|e| format!("at locking mesh to render: {e}"))?
       .as_ref()
-      .map(|mesh| mesh.update_transform(self.object_transform).inspect_err(|e| eprintln!("at obj transform update: {e}")));
+      .map(|mesh|
+        mesh
+          .update_transform(self.object_transform)
+          .inspect_err(|e| eprintln!("at obj transform update: {e}")));
     Ok(())
   }
 }
@@ -46,7 +56,9 @@ impl Game {
     let game_obj = GameObject {
       display_mesh: Arc::new(RwLock::new(None)),
       display_tex: Arc::new(RwLock::new(None)),
-      object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY }
+      object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
+      animation_time: 0,
+      rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (3000, 6.28), (6000, 0.0)] },
     };
     renderer
       .send_batch_sync(vec![
