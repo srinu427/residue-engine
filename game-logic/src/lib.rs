@@ -36,8 +36,8 @@ impl GameObject {
 }
 
 pub struct Game {
-  renderer: Renderer,
   game_objects: Vec<GameObject>,
+  renderer: Renderer,
   camera: Camera3D,
   start_time: std::time::Instant,
   last_update: std::time::Duration,

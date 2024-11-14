@@ -21,8 +21,8 @@ use renderables::{
   Camera3D,
 };
 
-static VERT_SHADER_CODE: &[u8] = include_bytes_aligned!(32, "shaders/triangle.vert.spv");
-static FRAG_SHADER_CODE: &[u8] = include_bytes_aligned!(32, "shaders/triangle_flat_tex.frag.spv");
+static VERT_SHADER_CODE: &[u8] = include_bytes_aligned!(4, "shaders/triangle.vert.spv");
+static FRAG_SHADER_CODE: &[u8] = include_bytes_aligned!(4, "shaders/triangle_flat_tex.frag.spv");
 
 pub struct TriMeshFlatTex {
   pub mesh: Arc<TriMeshGPU>,
