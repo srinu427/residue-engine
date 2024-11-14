@@ -1,5 +1,5 @@
 use std::{
-  collections::HashMap, fs, path::Path, slice::from_raw_parts, sync::Arc
+  collections::HashMap, fs, mem::transmute, path::Path, slice::from_raw_parts, sync::Arc
 };
 
 use ash_context::{
@@ -60,7 +60,7 @@ pub struct AdShaderModule {
 impl AdShaderModule {
   pub fn bytes_to_words(data: &[u8]) -> &[u32] {
     unsafe {
-      from_raw_parts(data.as_ptr() as *const u32, data.len() / 4)
+      data.align_to::<u32>().1
     }
   }
 

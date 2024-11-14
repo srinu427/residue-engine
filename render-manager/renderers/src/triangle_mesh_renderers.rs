@@ -14,14 +14,15 @@ use ash_ad_wrappers::{
   ash_render_wrappers::{AdFrameBuffer, AdPipeline, AdRenderPass},
   ash_sync_wrappers::AdFence,
 };
+use include_bytes_aligned::include_bytes_aligned;
 use renderables::{
   flat_texture::{FlatTextureGPU, FlatTextureGenerator},
   triangle_mesh::{TriMeshGPU, TriMeshGenerator},
   Camera3D,
 };
 
-static VERT_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle.vert.spv");
-static FRAG_SHADER_CODE: &[u8] = include_bytes!("shaders/triangle_flat_tex.frag.spv");
+static VERT_SHADER_CODE: &[u8] = include_bytes_aligned!(32, "shaders/triangle.vert.spv");
+static FRAG_SHADER_CODE: &[u8] = include_bytes_aligned!(32, "shaders/triangle_flat_tex.frag.spv");
 
 pub struct TriMeshFlatTex {
   pub mesh: Arc<TriMeshGPU>,

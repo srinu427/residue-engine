@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+include_bytes_aligned = "0.1.4"
 ash-ad-wrappers = {path = "../ash-ad-wrappers"}
 renderables = {path = "../renderables"}
