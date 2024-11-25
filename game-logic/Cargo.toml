@@ -7,3 +7,4 @@ edition = "2021"
 glam = "0.29.0"
 render-manager = {path="../render-manager"}
 input-aggregator = {path="../input-aggregator"}
+physics = {path="../physics"}

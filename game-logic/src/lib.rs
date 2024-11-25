@@ -5,7 +5,6 @@ use input_aggregator::{InputAggregator, Key};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod animation;
-mod physics;
 
 pub struct GameObject {
   pub display_mesh: Arc<OnceLock<Arc<TriMeshGPU>>>,
