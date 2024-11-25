@@ -1,6 +1,6 @@
 use std::{
   collections::HashMap,
-  sync::{Arc, Mutex, RwLock},
+  sync::{Arc, Mutex, OnceLock},
 };
 
 use ash_ad_wrappers::{
@@ -27,8 +27,8 @@ pub use renderables::triangle_mesh::{TriMeshCPU, TriMeshGPU, TriMeshTransform};
 pub use renderables::flat_texture::FlatTextureGPU;
 
 pub enum RendererMessage {
-  UploadTriMesh(String, TriMeshCPU, Arc<RwLock<Option<Arc<TriMeshGPU>>>>),
-  UploadFlatTex(String, String, Arc<RwLock<Option<Arc<FlatTextureGPU>>>>),
+  UploadTriMesh(String, TriMeshCPU, Arc<OnceLock<Arc<TriMeshGPU>>>),
+  UploadFlatTex(String, String, Arc<OnceLock<Arc<FlatTextureGPU>>>),
   SetCamera(Camera3D),
   Draw(Vec<(Arc<TriMeshGPU>, Arc<FlatTextureGPU>)>),
   Stop,
@@ -297,7 +297,7 @@ impl RenderManager {
     &mut self,
     name: String,
     mesh: &TriMeshCPU,
-    output: Arc<RwLock<Option<Arc<TriMeshGPU>>>>,
+    output: Arc<OnceLock<Arc<TriMeshGPU>>>,
   ) -> Result<(), String> {
     let s_time = std::time::Instant::now();
     let tri_mesh_gpu = self
@@ -306,9 +306,8 @@ impl RenderManager {
       .or_insert(Arc::new(self.tri_mesh_gen.upload_tri_mesh(&name, mesh)?));
     println!("mesh {} upload time: {}ms", &name, s_time.elapsed().as_millis());
     output
-      .write()
-      .map_err(|e| format!("at getting write lock for add tri_mesh: {e}"))?
-      .replace(tri_mesh_gpu.clone());
+      .set(tri_mesh_gpu.clone())
+      .map_err(|_| format!("at setting mesh output"))?;
     Ok(())
   }
 
@@ -316,7 +315,7 @@ impl RenderManager {
     &mut self,
     name: String,
     tex_path: String,
-    output: Arc<RwLock<Option<Arc<FlatTextureGPU>>>>
+    output: Arc<OnceLock<Arc<FlatTextureGPU>>>
   ) -> Result<(), String> {
     let s_time = std::time::Instant::now();
     let flat_tex_gpu = self
@@ -325,9 +324,8 @@ impl RenderManager {
       .or_insert(Arc::new(self.flat_tex_gen.upload_flat_texture(&name, &tex_path)?));
     println!("tex {} upload time: {}ms", &name, s_time.elapsed().as_millis());
     output
-      .write()
-      .map_err(|e| format!("at getting write lock for add flat_tex: {e}"))?
-      .replace(flat_tex_gpu.clone());
+      .set(flat_tex_gpu.clone())
+      .map_err(|_| format!("at setting tex output"))?;
     Ok(())
   }
 

@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key};
@@ -8,8 +8,8 @@ mod animation;
 mod physics;
 
 pub struct GameObject {
-  pub display_mesh: Arc<RwLock<Option<Arc<TriMeshGPU>>>>,
-  pub display_tex: Arc<RwLock<Option<Arc<FlatTextureGPU>>>>,
+  pub display_mesh: Arc<OnceLock<Arc<TriMeshGPU>>>,
+  pub display_tex: Arc<OnceLock<Arc<FlatTextureGPU>>>,
   pub animation_time: u128,
   pub rotation_animation: KeyFramed<f32>,
   pub object_transform: TriMeshTransform,
@@ -24,9 +24,7 @@ impl GameObject {
     // self.object_transform.transform = self.object_transform.transform * rot_mat;
     self
       .display_mesh
-      .read()
-      .map_err(|e| format!("at locking mesh to render: {e}"))?
-      .as_ref()
+      .get()
       .map(|mesh|
         mesh
           .update_transform(self.object_transform)
@@ -54,8 +52,8 @@ impl Game {
       1.0,
     );
     let game_obj = GameObject {
-      display_mesh: Arc::new(RwLock::new(None)),
-      display_tex: Arc::new(RwLock::new(None)),
+      display_mesh: Arc::new(OnceLock::new()),
+      display_tex: Arc::new(OnceLock::new()),
       object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
       animation_time: 0,
       rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (2000, 360f32.to_radians()), (4000, 0.0)] },
@@ -99,14 +97,12 @@ impl Game {
     for go in self.game_objects.iter() {
       let Some(mesh) = go
         .display_mesh
-        .read()
-        .map_err(|e| format!("at locking mesh to render: {e}"))?
-        .clone() else { continue };
+        .get()
+        .cloned() else { continue };
       let Some(ftex) = go
         .display_tex
-        .read()
-        .map_err(|e| format!("at locking tex to render: {e}"))?
-        .clone() else { continue };
+        .get()
+        .cloned() else { continue };
       mesh_ftex_list.push((mesh, ftex));
     }
     if inputs.is_key_pressed(Key::Character("a".into())).is_pressed() {
