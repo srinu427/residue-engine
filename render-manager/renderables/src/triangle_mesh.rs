@@ -17,6 +17,7 @@ pub fn g_vec4_from_vec3(v: glam::Vec3, w: f32) -> glam::Vec4 {
   glam::vec4(v.x, v.y, v.z, w)
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct TriMeshVertex {
   pub pos: glam::Vec4,
@@ -31,19 +32,19 @@ pub struct TriMeshTransform {
 }
 
 pub struct TriMeshCPU {
-  pub verts: Vec<TriMeshVertex>,
+  pub vertices: Vec<TriMeshVertex>,
   pub triangles: Vec<[u32; 3]>,
 }
 
 impl TriMeshCPU {
   pub fn merge(mut self, mut other: Self) -> Self {
-    let curr_vert_len = self.verts.len() as u32;
+    let curr_vert_len = self.vertices.len() as u32;
     for t in other.triangles.iter_mut() {
       for idx in t {
         *idx += curr_vert_len;
       }
     }
-    self.verts.append(&mut other.verts);
+    self.vertices.append(&mut other.vertices);
     self.triangles.append(&mut other.triangles);
     self
   }
@@ -73,7 +74,7 @@ impl TriMeshCPU {
       },
     ];
     let triangles = vec![[0, 1, 2], [2, 3, 0]];
-    Self { verts, triangles }
+    Self { vertices: verts, triangles }
   }
 
   pub fn make_cuboid(
@@ -83,13 +84,43 @@ impl TriMeshCPU {
     z_len: f32,
   ) -> Self {
     let axis_z = axis_x.cross(axis_y).normalize() * z_len;
-    Self { verts: vec![], triangles: vec![] }
+    Self { vertices: vec![], triangles: vec![] }
       .merge(Self::make_rect(center + (axis_x / 2.0), axis_y, axis_z))
       .merge(Self::make_rect(center - (axis_x / 2.0), axis_z, axis_y))
       .merge(Self::make_rect(center + (axis_y / 2.0), axis_z, axis_x))
       .merge(Self::make_rect(center - (axis_y / 2.0), axis_x, axis_z))
       .merge(Self::make_rect(center + (axis_z / 2.0), axis_x, axis_y))
       .merge(Self::make_rect(center - (axis_z / 2.0), axis_y, axis_x))
+  }
+
+  pub fn make_planar_polygon(g_vertices: Vec<glam::Vec3>) -> Self {
+    let normal = (g_vertices[1] - g_vertices[0]).cross(g_vertices[2] - g_vertices[1]).normalize();
+    let tangent = (g_vertices[1] - g_vertices[0]).normalize();
+    let bitangent = normal.cross(tangent).normalize();
+
+    let vertices = g_vertices
+      .iter()
+      .map(|g_vertex| {
+        TriMeshVertex {
+          pos: g_vec4_from_vec3(*g_vertex, 1.0),
+          normal: g_vec4_from_vec3(normal, 0.0),
+          uv: glam::vec4(
+            (g_vertex - g_vertices[0]).dot(tangent),
+            (g_vertex - g_vertices[0]).dot(bitangent),
+            0.0,
+            0.0,
+          ),
+        }
+      })
+      .collect::<Vec<_>>();
+    let triangles = (1..vertices.len() - 1)
+      .map(|i| {
+        let i = i as _;
+        [0, i, i + 1]
+      })
+      .collect::<Vec<_>>();
+    println!("{:?}", triangles);
+    Self{vertices, triangles}
   }
 }
 
@@ -104,7 +135,7 @@ pub struct TriMeshGPU {
 impl TriMeshGPU {
   pub fn update_transform(&self, t: TriMeshTransform) -> Result<(), String> {
     let AdDescriptorBinding::UniformBuffer(ob) = &self.dset.bindings()[2] else {
-      return Err(format!("Triangle mesh constructed with improper object data buffer"))
+      return Err("Triangle mesh constructed with improper object data buffer".to_string())
     };
     ob.write_data(0, &[t])?;
     Ok(())
@@ -158,7 +189,7 @@ impl TriMeshGenerator {
     let cmd_buffer =
       AdCommandBuffer::new(self.cmd_pool.clone(), vk::CommandBufferLevel::PRIMARY, 1)?.remove(0);
 
-    let vert_buffer_data = AdBuffer::get_byte_slice(&tri_mesh_cpu.verts);
+    let vert_buffer_data = AdBuffer::get_byte_slice(&tri_mesh_cpu.vertices);
     let vert_buffer = AdBuffer::new(
       ash_device.clone(),
       self.allocator.clone(),

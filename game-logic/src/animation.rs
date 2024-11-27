@@ -29,10 +29,10 @@ impl<T> KeyFramed<T> where T: Clone + Mul<f32, Output = T> + Add<Output = T> {
   pub fn value_at(&self, time_ms: u128) -> T {
     let kf_idx = self.search_key_frame_idx(time_ms);
     if kf_idx == self.key_frames.len() - 1 {
-      return self.key_frames[kf_idx].1.clone();
+      self.key_frames[kf_idx].1.clone()
     } else {
       let mix_factor = (time_ms - self.key_frames[kf_idx].0) as f32 / (self.key_frames[kf_idx + 1].0 - self.key_frames[kf_idx].0) as f32;
-      return (self.key_frames[kf_idx].1.clone() * mix_factor) + (self.key_frames[kf_idx + 1].1.clone() * (1.0 - mix_factor));
+      (self.key_frames[kf_idx].1.clone() * mix_factor) + (self.key_frames[kf_idx + 1].1.clone() * (1.0 - mix_factor))
     }
   }
 }

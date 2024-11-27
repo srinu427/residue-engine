@@ -2,6 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key};
+use physics::PolygonMesh;
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod animation;
@@ -57,6 +58,21 @@ impl Game {
       animation_time: 0,
       rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (2000, 360f32.to_radians()), (4000, 0.0)] },
     };
+
+    let floor_verts_cpu = TriMeshCPU::make_planar_polygon(
+      PolygonMesh::new_rectangle(
+        glam::vec3(0.0, -2.0, 0.0),
+        glam::vec3(10.0, 0.0, 0.0),
+        glam::vec3(0.0, 0.0, -10.0),
+      ).get_faces().remove(0));
+    let floor = GameObject {
+      display_mesh: Arc::new(OnceLock::new()),
+      display_tex: Arc::new(OnceLock::new()),
+      object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
+      animation_time: 0,
+      rotation_animation: KeyFramed { key_frames: vec![(0, 0.0)] },
+    };
+
     renderer
       .send_batch_sync(vec![
         RendererMessage::UploadTriMesh(
@@ -64,16 +80,26 @@ impl Game {
           tri_verts_cpu,
           game_obj.display_mesh.clone()
         ),
+        RendererMessage::UploadTriMesh(
+          "floor".to_string(),
+          floor_verts_cpu,
+          floor.display_mesh.clone()
+        ),
         RendererMessage::UploadFlatTex(
           "./background.png".to_string(),
           "./background.png".to_string(),
           game_obj.display_tex.clone(),
         ),
+        RendererMessage::UploadFlatTex(
+          "./background.png".to_string(),
+          "./background.png".to_string(),
+          floor.display_tex.clone(),
+        ),
       ])
       .map_err(|e| format!("at sending work to renderer: {e}"))?;
     Ok(Self {
       renderer,
-      game_objects: vec![game_obj],
+      game_objects: vec![game_obj, floor],
       start_time,
       last_update: start_time.elapsed(),
       camera: Camera3D::new(
