@@ -1,6 +1,7 @@
 pub use glam;
 use glam::Vec4Swizzles;
 
+pub mod depth_texture;
 pub mod flat_texture;
 pub mod triangle_mesh;
 

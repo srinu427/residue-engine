@@ -16,13 +16,15 @@ use ash_ad_wrappers::{
 };
 use include_bytes_aligned::include_bytes_aligned;
 use renderables::{
-  flat_texture::{FlatTextureGPU, FlatTextureGenerator},
-  triangle_mesh::{TriMeshGPU, TriMeshGenerator},
-  Camera3D,
+  depth_texture::{DepthTextureGPU, DepthTextureGenerator}, flat_texture::{FlatTextureGPU, FlatTextureGenerator}, triangle_mesh::{TriMeshGPU, TriMeshGenerator}, Camera3D
 };
 
-static VERT_SHADER_CODE: &[u8] = include_bytes_aligned!(4, "shaders/triangle.vert.spv");
-static FRAG_SHADER_CODE: &[u8] = include_bytes_aligned!(4, "shaders/triangle_flat_tex.frag.spv");
+mod depth_renderer;
+
+pub use depth_renderer::TriMeshDepthRenderer;
+
+static FTEX_VERT_SHADER_CODE: &[u8] = include_bytes_aligned!(4, "shaders/triangle.vert.spv");
+static FTEX_FRAG_SHADER_CODE: &[u8] = include_bytes_aligned!(4, "shaders/triangle_flat_tex.frag.spv");
 
 pub struct TriMeshFlatTex {
   pub mesh: Arc<TriMeshGPU>,
@@ -39,6 +41,7 @@ impl TriMeshTexRenderer {
     ash_device: Arc<AdAshDevice>,
     tri_mesh_gen: &TriMeshGenerator,
     flat_tex_gen: &FlatTextureGenerator,
+    depth_tex_gen: &DepthTextureGenerator,
   ) -> Result<Self, String> {
     let render_pass = AdRenderPass::new(
       ash_device.clone(),
@@ -83,11 +86,11 @@ impl TriMeshTexRenderer {
       render_pass.clone(),
       0,
       HashMap::from([
-        (vk::ShaderStageFlags::VERTEX, VERT_SHADER_CODE),
-        (vk::ShaderStageFlags::FRAGMENT, FRAG_SHADER_CODE),
+        (vk::ShaderStageFlags::VERTEX, FTEX_VERT_SHADER_CODE),
+        (vk::ShaderStageFlags::FRAGMENT, FTEX_FRAG_SHADER_CODE),
       ]),
-      &[tri_mesh_gen.mesh_dset_layout(), flat_tex_gen.tex_dset_layout()],
-      (vk::ShaderStageFlags::VERTEX, std::mem::size_of::<Camera3D>() as u32),
+      &[tri_mesh_gen.mesh_dset_layout(), flat_tex_gen.tex_dset_layout(), depth_tex_gen.tex_dset_layout()],
+      (vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT, std::mem::size_of::<Camera3D>() as u32),
       triangle_rasterizer_info,
       &vk::PipelineColorBlendStateCreateInfo::default().attachments(&[
         vk::PipelineColorBlendAttachmentState::default()
@@ -191,6 +194,7 @@ impl TriMeshTexRenderer {
     cmd_buffer: &AdCommandBuffer,
     frame_buffer: &AdFrameBuffer,
     camera: Camera3D,
+    depth_tex: Arc<DepthTextureGPU>,
     objs: &[(Arc<TriMeshGPU>, Arc<FlatTextureGPU>)],
   ) {
     cmd_buffer.begin_render_pass(
@@ -219,11 +223,11 @@ impl TriMeshTexRenderer {
       cmd_buffer.bind_descriptor_sets(
         vk::PipelineBindPoint::GRAPHICS,
         self.pipelines[0].layout(),
-        &[obj.0.dset().inner(), obj.1.dset().inner()],
+        &[obj.0.dset().inner(), obj.1.dset().inner(), depth_tex.dset().inner()],
       );
       cmd_buffer.set_push_constant_data(
         self.pipelines[0].layout(),
-        vk::ShaderStageFlags::VERTEX,
+        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
         AdBuffer::get_byte_slice(&[camera]),
       );
       cmd_buffer.draw(obj.0.indx_count() as _);

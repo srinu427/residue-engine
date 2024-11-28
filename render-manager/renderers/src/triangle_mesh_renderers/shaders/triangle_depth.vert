@@ -1,11 +1,11 @@
 #version 460
 // #extension GL_KHR_vulkan_glsl: enable
 // #extension GL_EXT_debug_printf : enable
+// #extension GL_ARB_shading_language_include : enable
 
-#include "common_structs.glsl"
+#include "../../shaders/common_structs.glsl"
 
-layout (location = 0) out vec4 outGlobalPos;
-layout (location = 1) out vec4 outUV;
+layout (location = 0) out vec4 globalPos;
 
 layout(std430, set = 0, binding = 0) readonly buffer VertexArray { VertexData verts[]; } vertex_buffer;
 layout(std430, set = 0, binding = 1) readonly buffer IndexArray { uint inds[]; } index_buffer;
@@ -20,8 +20,6 @@ vec4 invert_y_axis(vec4 v) {
 void main() {
   uint vert_id = index_buffer.inds[gl_VertexIndex];
   vec4 global_pos = object_transfer.data.transform * vertex_buffer.verts[vert_id].position;
+  globalPos = global_pos;
   gl_Position = invert_y_axis(camera_buffer.data.view_proj_mat * global_pos);
-  outGlobalPos = global_pos;
-  outUV = vertex_buffer.verts[vert_id].uv;
-  //debugPrintfEXT("%1.2v4f\n", gl_Position);
 }

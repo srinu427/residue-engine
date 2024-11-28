@@ -195,10 +195,11 @@ impl AdBuffer {
 
   pub fn get_byte_slice<T>(struct_slice: &[T]) -> &[u8] {
     unsafe {
-      std::slice::from_raw_parts(
-        struct_slice.as_ptr() as *const u8,
-        std::mem::size_of::<T>() * struct_slice.len(),
-      )
+      struct_slice.align_to::<u8>().1
+      // std::slice::from_raw_parts(
+      //   struct_slice.as_ptr() as *const u8,
+      //   std::mem::size_of::<T>() * struct_slice.len(),
+      // )
     }
   }
 }

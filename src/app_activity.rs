@@ -75,8 +75,8 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::Resized(_) => {}
       WindowEvent::Moved(_) => {}
       WindowEvent::CloseRequested => {
-        #[cfg(target_os = "macos")]
-        let _ = self.window.take();
+        // #[cfg(target_os = "macos")]
+        // let _ = self.window.take();
         event_loop.exit();
       }
       WindowEvent::Destroyed => {}

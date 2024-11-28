@@ -15,10 +15,9 @@ use ash_ad_wrappers::{
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
 use renderables::{
-  flat_texture::FlatTextureGenerator,
-  triangle_mesh::TriMeshGenerator,
+  depth_texture::{DepthTextureGPU, DepthTextureGenerator}, flat_texture::FlatTextureGenerator, triangle_mesh::TriMeshGenerator
 };
-use renderers::triangle_mesh_renderers::TriMeshTexRenderer;
+use renderers::triangle_mesh_renderers::{TriMeshDepthRenderer, TriMeshTexRenderer};
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
@@ -117,11 +116,15 @@ impl Drop for Renderer {
 
 pub struct RenderManager {
   triangle_frame_buffers: Vec<Arc<AdFrameBuffer>>,
+  depth_frame_buffers: Vec<Arc<AdFrameBuffer>>,
 
   tri_mesh_tex_renderer: TriMeshTexRenderer,
+  tri_mesh_depth_renderer: TriMeshDepthRenderer,
 
   flat_texes: HashMap<String, Arc<FlatTextureGPU>>,
   flat_tex_gen: FlatTextureGenerator,
+  depth_texes: Vec<Arc<DepthTextureGPU>>,
+  depth_tex_gen: DepthTextureGenerator,
   tri_meshes: HashMap<String, Arc<TriMeshGPU>>,
   tri_mesh_gen: TriMeshGenerator,
   camera: Camera3D,
@@ -243,15 +246,27 @@ impl RenderManager {
     let gen_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
     let tri_mesh_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
     let flat_tex_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
+    let depth_tex_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
 
     let tri_mesh_gen =
       TriMeshGenerator::new(tri_mesh_allocator, queues[&GPUQueueType::Transfer].clone())?;
 
     let flat_tex_gen =
       FlatTextureGenerator::new(flat_tex_allocator, queues[&GPUQueueType::Transfer].clone())?;
+    
+    let depth_tex_gen =
+      DepthTextureGenerator::new(depth_tex_allocator, queues[&GPUQueueType::Transfer].clone())?;
 
     let tri_mesh_tex_renderer =
-      TriMeshTexRenderer::new(ash_device.clone(), &tri_mesh_gen, &flat_tex_gen)?;
+      TriMeshTexRenderer::new(ash_device.clone(), &tri_mesh_gen, &flat_tex_gen, &depth_tex_gen)?;
+    
+    let tri_mesh_depth_renderer =
+      TriMeshDepthRenderer::new(ash_device.clone(), &tri_mesh_gen)?;
+
+    let depth_texes = (0..3)
+      .map(|i| depth_tex_gen.generate_with_res(&format!("depth_texture_{i}"), swapchain_resolution).map(Arc::new))
+      .collect::<Result<Vec<_>, _>>()?;
+    let depth_frame_buffers = tri_mesh_depth_renderer.create_framebuffers(&depth_texes)?;
 
     let mut triangle_frame_buffers = tri_mesh_tex_renderer.create_framebuffers(
       &render_cmd_buffers[0],
@@ -284,12 +299,16 @@ impl RenderManager {
       render_fences,
       gen_allocator,
       triangle_frame_buffers,
+      depth_frame_buffers,
       camera,
       tri_meshes: HashMap::new(),
       tri_mesh_gen,
       tri_mesh_tex_renderer,
       flat_texes: HashMap::new(),
       flat_tex_gen,
+      depth_texes,
+      depth_tex_gen,
+      tri_mesh_depth_renderer,
     })
   }
 
@@ -402,10 +421,42 @@ impl RenderManager {
       .begin(vk::CommandBufferUsageFlags::default())
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
 
+    self.tri_mesh_depth_renderer.render(
+      &self.render_cmd_buffers[image_idx as usize],
+      &self.depth_frame_buffers[image_idx as usize],
+      self.camera,
+      &mesh_ftex_list.iter().map(|(mesh, _)| mesh.clone()).collect::<Vec<_>>()
+    );
+
+    // self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
+    //   vk::PipelineStageFlags::TRANSFER,
+    //   vk::PipelineStageFlags::TRANSFER,
+    //   vk::DependencyFlags::BY_REGION,
+    //   &[],
+    //   &[],
+    //   &[vk::ImageMemoryBarrier::default()
+    //     .image(self.depth_frame_buffers[image_idx as usize].attachments()[0].image().inner())
+    //     .subresource_range(
+    //       vk::ImageSubresourceRange::default()
+    //         .aspect_mask(vk::ImageAspectFlags::COLOR)
+    //         .layer_count(1)
+    //         .base_array_layer(0)
+    //         .level_count(1)
+    //         .base_mip_level(0),
+    //     )
+    //     .src_queue_family_index(self.queues[&GPUQueueType::Graphics].family_index())
+    //     .dst_queue_family_index(self.queues[&GPUQueueType::Graphics].family_index())
+    //     .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+    //     .dst_access_mask(vk::AccessFlags::SHADER_READ)
+    //     .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+    //     .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)],
+    // );
+
     self.tri_mesh_tex_renderer.render(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
       self.camera,
+      self.depth_texes[image_idx as usize].clone(),
       mesh_ftex_list,
     );
 
