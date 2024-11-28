@@ -15,9 +15,9 @@ use ash_ad_wrappers::{
   ash_sync_wrappers::{AdFence, AdSemaphore},
 };
 use renderables::{
-  depth_texture::{DepthTextureGPU, DepthTextureGenerator}, flat_texture::FlatTextureGenerator, triangle_mesh::TriMeshGenerator
+  flat_texture::FlatTextureGenerator, triangle_mesh::TriMeshGenerator
 };
-use renderers::triangle_mesh_renderers::{TriMeshDepthRenderer, TriMeshTexRenderer};
+use renderers::triangle_mesh_renderers::TriMeshTexRenderer;
 
 pub use ash_ad_wrappers::ash_context::AdAshInstance;
 pub use ash_ad_wrappers::ash_surface_wrappers::{AdSurface, AdSurfaceInstance};
@@ -114,17 +114,14 @@ impl Drop for Renderer {
   }
 }
 
+const DEPTH_FORMAT_PREFERENCE: [vk::Format; 1] = [vk::Format::D24_UNORM_S8_UINT];
+
 pub struct RenderManager {
   triangle_frame_buffers: Vec<Arc<AdFrameBuffer>>,
-  depth_frame_buffers: Vec<Arc<AdFrameBuffer>>,
-
   tri_mesh_tex_renderer: TriMeshTexRenderer,
-  tri_mesh_depth_renderer: TriMeshDepthRenderer,
 
   flat_texes: HashMap<String, Arc<FlatTextureGPU>>,
   flat_tex_gen: FlatTextureGenerator,
-  depth_texes: Vec<Arc<DepthTextureGPU>>,
-  depth_tex_gen: DepthTextureGenerator,
   tri_meshes: HashMap<String, Arc<TriMeshGPU>>,
   tri_mesh_gen: TriMeshGenerator,
   camera: Camera3D,
@@ -135,6 +132,7 @@ pub struct RenderManager {
   render_cmd_buffers: Vec<AdCommandBuffer>,
   image_acquire_fence: AdFence,
   swapchain: AdSwapchain,
+  depth_format: vk::Format,
   queues: HashMap<GPUQueueType, Arc<AdQueue>>,
   ash_device: Arc<AdAshDevice>,
 }
@@ -184,6 +182,20 @@ impl RenderManager {
         *queue_idx -= 1
       };
       queues.insert(q_type, Arc::new(AdQueue::new(ash_device.clone(), q_f_idx, *queue_idx)));
+    }
+
+    let mut depth_format = vk::Format::UNDEFINED;
+    for format in DEPTH_FORMAT_PREFERENCE {
+      let format_props = unsafe {
+        ash_device.ash_instance().inner().get_physical_device_format_properties(gpu, format)
+      };
+      if format_props.optimal_tiling_features.contains(vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT) {
+        depth_format = format;
+        break;
+      }
+    }
+    if depth_format == vk::Format::UNDEFINED {
+      return Err("preferred depth format not supported".to_string());
     }
 
     let surface_formats = surface.get_gpu_formats(ash_device.gpu())?;
@@ -246,27 +258,15 @@ impl RenderManager {
     let gen_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
     let tri_mesh_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
     let flat_tex_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
-    let depth_tex_allocator = Arc::new(Mutex::new(ash_device.create_allocator()?));
 
     let tri_mesh_gen =
       TriMeshGenerator::new(tri_mesh_allocator, queues[&GPUQueueType::Transfer].clone())?;
 
     let flat_tex_gen =
       FlatTextureGenerator::new(flat_tex_allocator, queues[&GPUQueueType::Transfer].clone())?;
-    
-    let depth_tex_gen =
-      DepthTextureGenerator::new(depth_tex_allocator, queues[&GPUQueueType::Transfer].clone())?;
 
     let tri_mesh_tex_renderer =
-      TriMeshTexRenderer::new(ash_device.clone(), &tri_mesh_gen, &flat_tex_gen, &depth_tex_gen)?;
-    
-    let tri_mesh_depth_renderer =
-      TriMeshDepthRenderer::new(ash_device.clone(), &tri_mesh_gen)?;
-
-    let depth_texes = (0..3)
-      .map(|i| depth_tex_gen.generate_with_res(&format!("depth_texture_{i}"), swapchain_resolution).map(Arc::new))
-      .collect::<Result<Vec<_>, _>>()?;
-    let depth_frame_buffers = tri_mesh_depth_renderer.create_framebuffers(&depth_texes)?;
+      TriMeshTexRenderer::new(ash_device.clone(), &tri_mesh_gen, &flat_tex_gen, depth_format)?;
 
     let mut triangle_frame_buffers = tri_mesh_tex_renderer.create_framebuffers(
       &render_cmd_buffers[0],
@@ -280,7 +280,13 @@ impl RenderManager {
         .allocation()
         .lock()
         .map_err(|e| format!("at getting image mem lock: {e}"))?
-        .rename(&format!("triangle_out_image_{i}"))?;
+        .rename(&format!("triangle_color_image_{i}"))?;
+      fb.attachments()[1]
+        .image()
+        .allocation()
+        .lock()
+        .map_err(|e| format!("at getting image mem lock: {e}"))?
+        .rename(&format!("triangle_depth_image_{i}"))?;
     }
 
     let camera = Camera3D {
@@ -292,6 +298,7 @@ impl RenderManager {
     Ok(Self {
       ash_device,
       queues,
+      depth_format,
       swapchain,
       image_acquire_fence,
       render_cmd_buffers,
@@ -299,16 +306,12 @@ impl RenderManager {
       render_fences,
       gen_allocator,
       triangle_frame_buffers,
-      depth_frame_buffers,
       camera,
       tri_meshes: HashMap::new(),
       tri_mesh_gen,
       tri_mesh_tex_renderer,
       flat_texes: HashMap::new(),
       flat_tex_gen,
-      depth_texes,
-      depth_tex_gen,
-      tri_mesh_depth_renderer,
     })
   }
 
@@ -326,7 +329,7 @@ impl RenderManager {
     println!("mesh {} upload time: {}ms", &name, s_time.elapsed().as_millis());
     output
       .set(tri_mesh_gpu.clone())
-      .map_err(|_| format!("at setting mesh output"))?;
+      .map_err(|_| "at setting mesh output".to_string())?;
     Ok(())
   }
 
@@ -344,7 +347,7 @@ impl RenderManager {
     println!("tex {} upload time: {}ms", &name, s_time.elapsed().as_millis());
     output
       .set(flat_tex_gpu.clone())
-      .map_err(|_| format!("at setting tex output"))?;
+      .map_err(|_| "at setting tex output".to_string())?;
     Ok(())
   }
 
@@ -404,7 +407,13 @@ impl RenderManager {
           .allocation()
           .lock()
           .map_err(|e| format!("at getting image mem lock: {e}"))?
-          .rename(&format!("triangle_out_image_{i}"))?;
+          .rename(&format!("triangle_color_image_{i}"))?;
+        fb.attachments()[1]
+          .image()
+          .allocation()
+          .lock()
+          .map_err(|e| format!("at getting image mem lock: {e}"))?
+          .rename(&format!("triangle_depth_image_{i}"))?;
       }
     }
 
@@ -421,42 +430,10 @@ impl RenderManager {
       .begin(vk::CommandBufferUsageFlags::default())
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
 
-    self.tri_mesh_depth_renderer.render(
-      &self.render_cmd_buffers[image_idx as usize],
-      &self.depth_frame_buffers[image_idx as usize],
-      self.camera,
-      &mesh_ftex_list.iter().map(|(mesh, _)| mesh.clone()).collect::<Vec<_>>()
-    );
-
-    // self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
-    //   vk::PipelineStageFlags::TRANSFER,
-    //   vk::PipelineStageFlags::TRANSFER,
-    //   vk::DependencyFlags::BY_REGION,
-    //   &[],
-    //   &[],
-    //   &[vk::ImageMemoryBarrier::default()
-    //     .image(self.depth_frame_buffers[image_idx as usize].attachments()[0].image().inner())
-    //     .subresource_range(
-    //       vk::ImageSubresourceRange::default()
-    //         .aspect_mask(vk::ImageAspectFlags::COLOR)
-    //         .layer_count(1)
-    //         .base_array_layer(0)
-    //         .level_count(1)
-    //         .base_mip_level(0),
-    //     )
-    //     .src_queue_family_index(self.queues[&GPUQueueType::Graphics].family_index())
-    //     .dst_queue_family_index(self.queues[&GPUQueueType::Graphics].family_index())
-    //     .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
-    //     .dst_access_mask(vk::AccessFlags::SHADER_READ)
-    //     .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-    //     .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)],
-    // );
-
     self.tri_mesh_tex_renderer.render(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
       self.camera,
-      self.depth_texes[image_idx as usize].clone(),
       mesh_ftex_list,
     );
 

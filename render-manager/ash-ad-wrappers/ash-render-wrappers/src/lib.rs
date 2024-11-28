@@ -132,6 +132,7 @@ impl AdPipeline {
     push_constant_stages_n_len: (vk::ShaderStageFlags, u32),
     rasterizer_config: vk::PipelineRasterizationStateCreateInfo,
     blend_info: &vk::PipelineColorBlendStateCreateInfo,
+    depth_info: &vk::PipelineDepthStencilStateCreateInfo,
   ) -> Result<Self, String> {
     let empty_vert_input_info = vk::PipelineVertexInputStateCreateInfo::default();
     let triangle_input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
@@ -190,6 +191,7 @@ impl AdPipeline {
       .viewport_state(&pipeline_vp_state)
       .multisample_state(&msaa_state)
       .color_blend_state(&blend_info)
+      .depth_stencil_state(&depth_info)
       .rasterization_state(&rasterizer_config);
     let pipeline = unsafe {
       render_pass
