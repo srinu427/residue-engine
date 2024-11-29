@@ -271,7 +271,7 @@ impl TriMeshTexRenderer {
       frame_buffer.inner(),
       vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: frame_buffer.resolution() },
       &[
-        vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
+        vk::ClearValue { color: vk::ClearColorValue { float32: [0.1, 0.1, 0.1, 0.0] } },
         vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
       ],
       vk::SubpassContents::INLINE,

@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key};
-use physics::collision::PolygonMesh;
+use physics::{collision::PolygonMesh, PhysicsEngine, PhysicsObject};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod animation;
@@ -10,6 +10,7 @@ mod animation;
 pub struct GameObject {
   pub display_mesh: Arc<OnceLock<Arc<TriMeshGPU>>>,
   pub display_tex: Arc<OnceLock<Arc<FlatTextureGPU>>>,
+  pub physics_name: Option<(bool, String)>,
   pub animation_time: u128,
   pub rotation_animation: KeyFramed<f32>,
   pub object_transform: TriMeshTransform,
@@ -36,6 +37,7 @@ impl GameObject {
 pub struct Game {
   game_objects: Vec<GameObject>,
   renderer: Renderer,
+  physics_engine: PhysicsEngine<16, 16>,
   camera: Camera3D,
   start_time: std::time::Instant,
   last_update: std::time::Duration,
@@ -44,6 +46,7 @@ pub struct Game {
 impl Game {
   pub fn new(surface: Arc<AdSurface>) -> Result<Self, String> {
     let mut renderer = Renderer::new(surface.clone()).map_err(|e| format!("at renderer init: {e}"))?;
+    let mut physics_engine = PhysicsEngine::new();
     let start_time = std::time::Instant::now();
     let tri_verts_cpu = TriMeshCPU::make_cuboid(
       glam::vec3(0.0, 0.0, 0.0),
@@ -51,9 +54,12 @@ impl Game {
       glam::vec3(0.0, 1.0, 0.0),
       1.0,
     );
+    let cube_phy_object = PolygonMesh::new_cuboid(glam::vec3(0.0, 0.0, 0.0), glam::vec3(1.0, 0.0, 0.0), glam::vec3(0.0, 1.0, 0.0), 1.0);
+    physics_engine.add_dynamic_polygon("cube_physics", cube_phy_object)?;
     let game_obj = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
+      physics_name: Some((true, "cube_physics".to_string())),
       object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
       animation_time: 0,
       rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (2000, 360f32.to_radians()), (4000, 0.0)] },
@@ -65,9 +71,12 @@ impl Game {
         glam::vec3(10.0, 0.0, 0.0),
         glam::vec3(0.0, 0.0, -10.0),
       ).get_faces().remove(0));
+    let floor_phy_object = PolygonMesh::new_rectangle(glam::vec3(0.0, -2.0, 0.0), glam::vec3(10.0, 0.0, 0.0), glam::vec3(0.0, 0.0, -10.0));
+    physics_engine.add_dynamic_polygon("floor_physics", floor_phy_object)?;
     let floor = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
+      physics_name: Some((false, "floor_physics".to_string())),
       object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
       animation_time: 0,
       rotation_animation: KeyFramed { key_frames: vec![(0, 0.0)] },
@@ -99,6 +108,7 @@ impl Game {
       .map_err(|e| format!("at sending work to renderer: {e}"))?;
     Ok(Self {
       renderer,
+      physics_engine,
       game_objects: vec![game_obj, floor],
       start_time,
       last_update: start_time.elapsed(),

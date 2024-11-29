@@ -9,6 +9,12 @@ pub struct PhysicsObject {
   transform: glam::Mat4,
 }
 
+impl PhysicsObject {
+  pub fn new(mesh: PolygonMesh, transform: glam::Mat4) -> Self {
+    Self { mesh, transform }
+  }
+}
+
 pub struct PhysicsEngine<const S: usize ,const D: usize> {
   static_objects: FnvIndexMap<String, PolygonMesh, S>,
   dynamic_objects: FnvIndexMap<String, PolygonMesh, D>,
@@ -55,7 +61,7 @@ impl<const S: usize ,const D: usize> PhysicsEngine<S,D> {
       )
       .map_err(|_| "max dynamic objects count reached".to_string())?;
     self
-      .dyn_static_separations
+      .dyn_dyn_separations
       .insert(
         name.to_string(),
         self
