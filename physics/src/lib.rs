@@ -1,99 +1,51 @@
-fn vec4_from_vec3(v: glam::Vec3, w: f32) -> glam::Vec4 {
-  glam::Vec4::new(v.x, v.y, v.z, w)
+pub mod collision;
+mod field;
+
+use heapless::FnvIndexMap;
+use collision::{PolygonMesh, SeparationPlane};
+
+pub struct PhysicsObject {
+  mesh: PolygonMesh,
+  transform: glam::Mat4,
 }
 
-pub struct PolygonMesh {
-  vertices: Vec<glam::Vec3>,
-  faces: Vec<(glam::Vec4, Vec<usize>)>,
-  edges: Vec<(usize, usize)>,
+pub struct PhysicsEngine<const S: usize ,const D: usize> {
+  static_objects: FnvIndexMap<String, PolygonMesh, S>,
+  dynamic_objects: FnvIndexMap<String, PolygonMesh, D>,
+  dyn_dyn_separations: FnvIndexMap<String, FnvIndexMap<String, SeparationPlane, D>, D>,
+  dyn_static_separations: FnvIndexMap<String, FnvIndexMap<String, SeparationPlane, S>, D>,
 }
 
-impl PolygonMesh {
-  pub fn new_rectangle(center: glam::Vec3, tangent: glam::Vec3, bitangent: glam::Vec3) -> Self {
-    let n_tangent = tangent.normalize();
-    let n_bitangent = bitangent.normalize();
-    let normal = n_bitangent.cross(n_tangent).normalize();
-
-    let h_tangent = tangent / 2.0;
-    let h_bitangent = bitangent / 2.0;
-
-    let vertices = vec![
-      center + h_tangent + h_bitangent,
-      center - h_tangent + h_bitangent,
-      center - h_tangent - h_bitangent,
-      center + h_tangent - h_bitangent,
-    ];
-    let faces = vec![(vec4_from_vec3(normal, -normal.dot(center)), vec![0, 1, 2, 3])];
-    let edges = vec![
-      (0, 1),
-      (1, 2),
-      (2, 3),
-      (3, 0),
-    ];
-    Self{vertices, faces, edges}
+impl<const S: usize ,const D: usize> PhysicsEngine<S,D> {
+  pub fn new() -> Self<S,D> {
+    Self {
+      static_objects: FnvIndexMap::new(),
+      dynamic_objects: FnvIndexMap::new(),
+      dyn_dyn_separations: FnvIndexMap::new(),
+      dyn_static_separations: FnvIndexMap::new(),
+    }
   }
 
-  pub fn new_cuboid(
-    center: glam::Vec3,
-    tangent: glam::Vec3,
-    bitangent: glam::Vec3,
-    depth: f32
-  ) -> Self {
-    let n_tangent = tangent.normalize();
-    let n_bitangent = bitangent.normalize();
-    let normal = n_bitangent.cross(n_tangent).normalize();
-
-    let h_tangent = tangent / 2.0;
-    let h_bitangent = bitangent / 2.0;
-    let h_depth = normal * depth / 2.0;
-
-    let vertices = vec![
-      // Top Face
-      center + h_tangent + h_bitangent + h_depth,
-      center - h_tangent + h_bitangent + h_depth,
-      center - h_tangent - h_bitangent + h_depth,
-      center + h_tangent - h_bitangent + h_depth,
-      // Bottom Face
-      center + h_tangent + h_bitangent - h_depth,
-      center + h_tangent - h_bitangent - h_depth,
-      center - h_tangent - h_bitangent - h_depth,
-      center - h_tangent + h_bitangent - h_depth,
-    ];
-    let faces = vec![
-      (vec4_from_vec3(n_tangent, -n_tangent.dot(center + h_tangent)), vec![0, 3, 5, 4]),
-      (vec4_from_vec3(-n_tangent, n_tangent.dot(center - h_tangent)), vec![2, 1, 7, 6]),
-      (vec4_from_vec3(n_bitangent, -n_bitangent.dot(center + h_bitangent)), vec![0, 1, 7, 4]),
-      (vec4_from_vec3(-n_bitangent, n_bitangent.dot(center - h_bitangent)), vec![3, 2, 6, 5]),
-      (vec4_from_vec3(normal, -normal.dot(center + h_depth)), vec![0, 1, 2, 3]),
-      (vec4_from_vec3(-normal, normal.dot(center - h_depth)), vec![4, 5, 6, 7]),
-    ];
-    let edges = vec![
-      // Top Face
-      (0, 1),
-      (1, 2),
-      (2, 3),
-      (3, 0),
-      // Bottom Face
-      (5, 4),
-      (6, 5),
-      (7, 6),
-      (8, 7),
-      // Sides
-      (4, 0),
-      (5, 1),
-      (6, 2),
-      (7, 3),
-    ];
-    Self{vertices, faces, edges}
-  }
-
-  pub fn get_faces(&self) -> Vec<Vec<glam::Vec3>> {
+  pub fn add_static_polygon(&mut self, name: &str, polygon: PolygonMesh) -> Result<(), String> {
+    for (do_id, sep_list) in self.dyn_static_separations.iter_mut() {
+      sep_list.push(self.dynamic_objects[do_id].get_separation_plane(&polygon))
+        .map_err(|_| "max static objects count reached".to_string())?;
+    }
     self
-      .faces
-      .iter()
-      .map(|(_, vert_ids)| {
-        vert_ids.iter().map(|id| self.vertices[*id]).collect()
-      })
-      .collect::<Vec<_>>()
+      .static_objects
+      .insert(name.to_string(), polygon)
+      .map_err(|_| "max static objects count reached".to_string())
+  }
+
+  pub fn add_dynamic_polygon(&mut self, polygon: PolygonMesh) -> Result<(), String> {
+    self
+      .dyn_static_separations
+      .push(self.static_objects.iter().map(|so| polygon.get_separation_plane(so)).collect())
+      .map_err(|_| "max dynamic objects count reached".to_string())?;
+    self
+      .dyn_static_separations
+      .push(self.dynamic_objects.iter().map(|dyn_o| polygon.get_separation_plane(dyn_o)).collect())
+      .map_err(|_| "max dynamic objects count reached".to_string())?;
+    self.dynamic_objects.push(polygon).map_err(|_| "max dynamic objects count reached".to_string())
   }
 }

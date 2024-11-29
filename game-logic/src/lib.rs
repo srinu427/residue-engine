@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key};
-use physics::PolygonMesh;
+use physics::collision::PolygonMesh;
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod animation;

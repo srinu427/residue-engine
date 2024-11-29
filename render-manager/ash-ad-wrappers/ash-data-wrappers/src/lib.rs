@@ -382,6 +382,14 @@ impl AdImage {
     Ok(image_2d)
   }
 
+  pub fn possible_image_aspect(&self) -> vk::ImageAspectFlags {
+    match self.format {
+      vk::Format::D16_UNORM | vk::Format::D32_SFLOAT => vk::ImageAspectFlags::DEPTH,
+      vk::Format::D16_UNORM_S8_UINT | vk::Format::D24_UNORM_S8_UINT | vk::Format::D32_SFLOAT_S8_UINT => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+      _ => vk::ImageAspectFlags::COLOR,
+    }
+  }
+
   pub fn full_range_offset_3d(&self) -> [vk::Offset3D; 2] {
     [
       vk::Offset3D::default(),

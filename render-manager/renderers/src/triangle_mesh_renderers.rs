@@ -166,7 +166,7 @@ impl TriMeshTexRenderer {
             .image(color_img.inner())
             .subresource_range(
               vk::ImageSubresourceRange::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .aspect_mask(color_img.possible_image_aspect())
                 .layer_count(1)
                 .base_array_layer(0)
                 .level_count(1)
@@ -194,7 +194,7 @@ impl TriMeshTexRenderer {
             .image(depth_img.inner())
             .subresource_range(
               vk::ImageSubresourceRange::default()
-                .aspect_mask(vk::ImageAspectFlags::DEPTH)
+                .aspect_mask(depth_img.possible_image_aspect())
                 .layer_count(1)
                 .base_array_layer(0)
                 .level_count(1)
@@ -271,7 +271,7 @@ impl TriMeshTexRenderer {
       frame_buffer.inner(),
       vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: frame_buffer.resolution() },
       &[
-        vk::ClearValue { color: vk::ClearColorValue { float32: [1.0, 0.0, 0.0, 0.0] } },
+        vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 0.0] } },
         vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
       ],
       vk::SubpassContents::INLINE,
