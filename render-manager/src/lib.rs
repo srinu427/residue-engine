@@ -34,7 +34,7 @@ pub enum RendererMessage {
 }
 
 pub struct Renderer {
-  thread: std::thread::JoinHandle<Result<(), String>>,
+  thread: Option<std::thread::JoinHandle<Result<(), String>>>,
   ordered_cmds: Arc<Mutex<Vec<RendererMessage>>>,
 }
 
@@ -86,7 +86,7 @@ impl Renderer {
       }
       return Ok::<(), String>(());
     });
-    Ok(Self { thread, ordered_cmds })
+    Ok(Self { thread: Some(thread), ordered_cmds })
   }
 
   pub fn send_batch_sync(&mut self, mut batch: Vec<RendererMessage>) -> Result<bool, String> {
@@ -106,15 +106,19 @@ impl Renderer {
 
 impl Drop for Renderer {
   fn drop(&mut self) {
-    if !self.thread.is_finished() {
+    let Some(thread) = self.thread.take() else { return; };
+
+    if !thread.is_finished() {
       let _ = self
         .send_batch_sync(vec![RendererMessage::Stop])
         .inspect_err(|e| eprintln!("at stopping renderer: {e}"));
     }
+    let _ = thread.join()
+      .inspect_err(|_| eprintln!("at joining renderer thread"));
   }
 }
 
-const DEPTH_FORMAT_PREFERENCE: [vk::Format; 1] = [vk::Format::D24_UNORM_S8_UINT];
+const DEPTH_FORMAT_PREFERENCE: [vk::Format; 3] = [vk::Format::D24_UNORM_S8_UINT, vk::Format::D16_UNORM_S8_UINT, vk::Format::D32_SFLOAT];
 
 pub struct RenderManager {
   triangle_frame_buffers: Vec<Arc<AdFrameBuffer>>,
@@ -197,6 +201,8 @@ impl RenderManager {
     if depth_format == vk::Format::UNDEFINED {
       return Err("preferred depth format not supported".to_string());
     }
+
+    println!("depth format selected");
 
     let surface_formats = surface.get_gpu_formats(ash_device.gpu())?;
     let surface_caps = surface.get_gpu_capabilities(ash_device.gpu())?;

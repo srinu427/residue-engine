@@ -30,7 +30,7 @@ pub struct TriMeshFlatTex {
 pub struct TriMeshTexRenderer {
   pipelines: Vec<AdPipeline>,
   render_pass: Arc<AdRenderPass>,
-  depth_stencil_format: vk::Format,
+  depth_format: vk::Format,
 }
 
 impl TriMeshTexRenderer {
@@ -38,7 +38,7 @@ impl TriMeshTexRenderer {
     ash_device: Arc<AdAshDevice>,
     tri_mesh_gen: &TriMeshGenerator,
     flat_tex_gen: &FlatTextureGenerator,
-    depth_stencil_format: vk::Format,
+    depth_format: vk::Format,
   ) -> Result<Self, String> {
     let render_pass = AdRenderPass::new(
       ash_device.clone(),
@@ -50,7 +50,7 @@ impl TriMeshTexRenderer {
           .final_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
           .load_op(vk::AttachmentLoadOp::CLEAR),
         vk::AttachmentDescription::default()
-          .format(depth_stencil_format)
+          .format(depth_format)
           .samples(vk::SampleCountFlags::TYPE_1)
           .initial_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
           .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
@@ -110,7 +110,7 @@ impl TriMeshTexRenderer {
         .depth_compare_op(vk::CompareOp::LESS)
     )?;
 
-    Ok(Self { pipelines: vec![pipeline], render_pass, depth_stencil_format })
+    Ok(Self { pipelines: vec![pipeline], render_pass, depth_format })
   }
 
   pub fn create_framebuffers(
@@ -140,7 +140,7 @@ impl TriMeshTexRenderer {
           allocator.clone(),
           MemoryLocation::GpuOnly,
           &format!("triangle_depth_image_temp_{i}"),
-          self.depth_stencil_format,
+          self.depth_format,
           resolution,
           vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
           vk::SampleCountFlags::TYPE_1,
@@ -194,7 +194,7 @@ impl TriMeshTexRenderer {
             .image(depth_img.inner())
             .subresource_range(
               vk::ImageSubresourceRange::default()
-                .aspect_mask(vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL)
+                .aspect_mask(vk::ImageAspectFlags::DEPTH)
                 .layer_count(1)
                 .base_array_layer(0)
                 .level_count(1)
@@ -236,7 +236,7 @@ impl TriMeshTexRenderer {
           triangle_out_images[i].1.clone(),
           vk::ImageViewType::TYPE_2D,
           vk::ImageSubresourceRange {
-            aspect_mask: vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+            aspect_mask: vk::ImageAspectFlags::DEPTH,
             base_mip_level: 0,
             level_count: 1,
             base_array_layer: 0,

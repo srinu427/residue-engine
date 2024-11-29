@@ -60,7 +60,6 @@ impl ApplicationHandler for AppActivity {
       self.window = Some(w);
       self.game = Some(game);
     }
-    println!("winit init done");
   }
 
   fn window_event(
