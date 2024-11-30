@@ -67,6 +67,7 @@ impl PhysicsInfo {
   }
 }
 
+#[derive(Debug, Clone)]
 pub struct PhysicsObject {
   mesh: PolygonMesh,
   transform: glam::Mat4,
@@ -77,13 +78,27 @@ impl PhysicsObject {
   pub fn new(mesh: PolygonMesh, transform: glam::Mat4) -> Self {
     Self { mesh, transform, physics_info: PhysicsInfo::default() }
   }
+
+  pub fn update(&mut self, time_ms: u128) {
+    self.physics_info.update_and_get_transform(time_ms);
+  }
+
+  pub fn is_separation_valid(&self, other: &Self, sep_plane: SeparationPlane) -> bool {
+    PolygonMesh::is_separation_plane_valid(
+      sep_plane,
+      &self.mesh,
+      self.transform,
+      &other.mesh,
+      other.transform
+    )
+  }
 }
 
 pub struct PhysicsEngine {
   static_object_reserve_len: usize,
   dynamic_object_reserve_len: usize,
-  static_objects: HashMap<String, PolygonMesh>,
-  dynamic_objects: HashMap<String, PolygonMesh>,
+  static_objects: HashMap<String, PhysicsObject>,
+  dynamic_objects: HashMap<String, PhysicsObject>,
   dyn_dyn_separations: HashMap<(String, String), SeparationPlane>,
   dyn_static_separations: HashMap<(String, String), SeparationPlane>,
 }
@@ -100,7 +115,7 @@ impl PhysicsEngine {
     }
   }
 
-  pub fn add_static_polygon(&mut self, name: &str, polygon: PolygonMesh) {
+  pub fn add_static_physics_obj(&mut self, name: &str, physics_obj: PhysicsObject) {
     // Check if the hashmap capacities are full
     if self.static_objects.len() == self.static_objects.capacity() {
       self.static_objects.reserve(self.static_object_reserve_len);
@@ -114,14 +129,17 @@ impl PhysicsEngine {
     for (dyno_name, dyno) in self.dynamic_objects.iter() {
       self
         .dyn_static_separations
-        .insert((dyno_name.clone(), name.to_string()), polygon.get_separation_plane(dyno));
+        .insert(
+          (dyno_name.clone(), name.to_string()),
+          physics_obj.mesh.get_separation_plane(physics_obj.transform, &dyno.mesh, dyno.transform)
+        );
     }
     self
       .static_objects
-      .insert(name.to_string(), polygon);
+      .insert(name.to_string(), physics_obj);
   }
 
-  pub fn add_dynamic_polygon(&mut self, name: &str, polygon: PolygonMesh) {
+  pub fn add_dynamic_physics_obj(&mut self, name: &str, physics_obj: PhysicsObject) {
     // Check if the hashmap capacities are full
     if self.static_objects.len() == self.static_objects.capacity() {
       self.static_objects.reserve(self.static_object_reserve_len);
@@ -143,15 +161,36 @@ impl PhysicsEngine {
     for (so_name, so) in self.static_objects.iter() {
       self
         .dyn_static_separations
-        .insert((name.to_string(), so_name.clone()), polygon.get_separation_plane(so));
+        .insert(
+          (name.to_string(), so_name.clone()),
+          physics_obj.mesh.get_separation_plane(physics_obj.transform, &so.mesh, so.transform)
+        );
     }
     for (dyno_name, dyno) in self.dynamic_objects.iter() {
       self
         .dyn_dyn_separations
-        .insert((name.to_string(), dyno_name.clone()), polygon.get_separation_plane(dyno));
+        .insert(
+          (name.to_string(), dyno_name.clone()),
+          physics_obj.mesh.get_separation_plane(physics_obj.transform, &dyno.mesh, dyno.transform)
+        );
     }
     self
       .dynamic_objects
-      .insert(name.to_string(), polygon);
+      .insert(name.to_string(), physics_obj);
+  }
+
+  pub fn run(&mut self, time_ms: u128) {
+    let next_dyn_objs = self
+      .dynamic_objects
+      .iter()
+      .map(|dyno| {
+        let mut next_dyn_obj = dyno.1.clone();
+        next_dyn_obj.update(time_ms);
+        (dyno.0.clone(), next_dyn_obj)
+      })
+      .collect::<HashMap<_, _>>();
+    for (dyno_name, dynamic_obj) in next_dyn_objs.iter() {
+
+    }
   }
 }

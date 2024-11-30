@@ -54,8 +54,16 @@ impl Game {
       glam::vec3(0.0, 1.0, 0.0),
       1.0,
     );
-    let cube_phy_object = PolygonMesh::new_cuboid(glam::vec3(0.0, 0.0, 0.0), glam::vec3(1.0, 0.0, 0.0), glam::vec3(0.0, 1.0, 0.0), 1.0);
-    physics_engine.add_dynamic_polygon("cube_physics", cube_phy_object);
+    let cube_phy_object = PhysicsObject::new(
+      PolygonMesh::new_cuboid(
+        glam::vec3(0.0, 0.0, 0.0),
+        glam::vec3(1.0, 0.0, 0.0),
+        glam::vec3(0.0, 1.0, 0.0),
+        1.0
+      ),
+      glam::Mat4::IDENTITY
+    );
+    physics_engine.add_dynamic_physics_obj("cube_physics", cube_phy_object);
     let game_obj = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
@@ -71,8 +79,15 @@ impl Game {
         glam::vec3(10.0, 0.0, 0.0),
         glam::vec3(0.0, 0.0, -10.0),
       ).get_faces().remove(0));
-    let floor_phy_object = PolygonMesh::new_rectangle(glam::vec3(0.0, -2.0, 0.0), glam::vec3(10.0, 0.0, 0.0), glam::vec3(0.0, 0.0, -10.0));
-    physics_engine.add_dynamic_polygon("floor_physics", floor_phy_object);
+    let floor_phy_object = PhysicsObject::new(
+      PolygonMesh::new_rectangle(
+        glam::vec3(0.0, -2.0, 0.0),
+        glam::vec3(10.0, 0.0, 0.0),
+        glam::vec3(0.0, 0.0, -10.0)
+      ),
+      glam::Mat4::IDENTITY
+    );
+    physics_engine.add_dynamic_physics_obj("floor_physics", floor_phy_object);
     let floor = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
