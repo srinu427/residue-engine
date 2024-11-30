@@ -119,7 +119,6 @@ impl TriMeshCPU {
         [0, i, i + 1]
       })
       .collect::<Vec<_>>();
-    println!("{:?}", triangles);
     Self{vertices, triangles}
   }
 }

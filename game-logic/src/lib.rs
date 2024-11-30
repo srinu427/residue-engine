@@ -37,7 +37,7 @@ impl GameObject {
 pub struct Game {
   game_objects: Vec<GameObject>,
   renderer: Renderer,
-  physics_engine: PhysicsEngine<16, 16>,
+  physics_engine: PhysicsEngine,
   camera: Camera3D,
   start_time: std::time::Instant,
   last_update: std::time::Duration,
@@ -46,7 +46,7 @@ pub struct Game {
 impl Game {
   pub fn new(surface: Arc<AdSurface>) -> Result<Self, String> {
     let mut renderer = Renderer::new(surface.clone()).map_err(|e| format!("at renderer init: {e}"))?;
-    let mut physics_engine = PhysicsEngine::new();
+    let mut physics_engine = PhysicsEngine::new(1000, 100);
     let start_time = std::time::Instant::now();
     let tri_verts_cpu = TriMeshCPU::make_cuboid(
       glam::vec3(0.0, 0.0, 0.0),
@@ -55,7 +55,7 @@ impl Game {
       1.0,
     );
     let cube_phy_object = PolygonMesh::new_cuboid(glam::vec3(0.0, 0.0, 0.0), glam::vec3(1.0, 0.0, 0.0), glam::vec3(0.0, 1.0, 0.0), 1.0);
-    physics_engine.add_dynamic_polygon("cube_physics", cube_phy_object)?;
+    physics_engine.add_dynamic_polygon("cube_physics", cube_phy_object);
     let game_obj = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
@@ -72,7 +72,7 @@ impl Game {
         glam::vec3(0.0, 0.0, -10.0),
       ).get_faces().remove(0));
     let floor_phy_object = PolygonMesh::new_rectangle(glam::vec3(0.0, -2.0, 0.0), glam::vec3(10.0, 0.0, 0.0), glam::vec3(0.0, 0.0, -10.0));
-    physics_engine.add_dynamic_polygon("floor_physics", floor_phy_object)?;
+    physics_engine.add_dynamic_polygon("floor_physics", floor_phy_object);
     let floor = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
