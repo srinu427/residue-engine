@@ -4,11 +4,18 @@ fn vec4_from_vec3(v: glam::Vec3, w: f32) -> glam::Vec4 {
   glam::Vec4::new(v.x, v.y, v.z, w)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum MinDistFromPlane {
+  NoIntersect(f32),
+  Intersect
+}
+
 #[derive(Debug, Clone)]
 pub struct PolygonMesh {
-  pub vertices: Vec<glam::Vec3>,
-  pub faces: Vec<(glam::Vec4, Vec<usize>)>,
-  pub edges: Vec<(usize, usize)>,
+  vertices: Vec<glam::Vec3>,
+  faces: Vec<(glam::Vec4, Vec<usize>)>,
+  collision_faces: Vec<glam::Vec4>,
+  edges: Vec<(usize, usize)>,
 }
 
 impl PolygonMesh {
@@ -26,14 +33,21 @@ impl PolygonMesh {
       center - h_tangent - h_bitangent,
       center + h_tangent - h_bitangent,
     ];
-    let faces = vec![(vec4_from_vec3(normal, -normal.dot(center)), vec![0, 1, 2, 3])];
+    let faces = vec![(vec4_from_vec3(normal, -normal.dot(center)), vec![0, 1, 2, 3]), ];
+    let collision_faces = vec![
+      vec4_from_vec3(normal, -normal.dot(center)),
+      vec4_from_vec3(normal.cross(-n_tangent), -normal.cross(-n_tangent).dot(vertices[0])),
+      vec4_from_vec3(normal.cross(-n_bitangent), -normal.cross(-n_bitangent).dot(vertices[1])),
+      vec4_from_vec3(normal.cross(n_tangent), -normal.cross(n_tangent).dot(vertices[2])),
+      vec4_from_vec3(normal.cross(n_bitangent), -normal.cross(n_bitangent).dot(vertices[3])),
+    ];
     let edges = vec![
       (0, 1),
       (1, 2),
       (2, 3),
       (3, 0),
     ];
-    Self{vertices, faces, edges}
+    Self{vertices, faces, collision_faces, edges}
   }
 
   pub fn new_cuboid(
@@ -70,6 +84,7 @@ impl PolygonMesh {
       (vec4_from_vec3(normal, -normal.dot(center + h_depth)), vec![0, 1, 2, 3]),
       (vec4_from_vec3(-normal, normal.dot(center - h_depth)), vec![4, 5, 6, 7]),
     ];
+    let collision_faces = faces.iter().map(|face| face.0).collect();
     let edges = vec![
       // Top Face
       (0, 1),
@@ -87,7 +102,7 @@ impl PolygonMesh {
       (6, 2),
       (7, 3),
     ];
-    Self{vertices, faces, edges}
+    Self{vertices, faces, collision_faces, edges}
   }
 
   pub fn get_faces(&self) -> Vec<Vec<glam::Vec3>> {
@@ -100,35 +115,44 @@ impl PolygonMesh {
       .collect::<Vec<_>>()
   }
 
-  pub fn on_positive_side_of_plane(
+  pub fn get_min_dist_from_plane(
     &self,
     transform: glam::Mat4,
     plane: glam::Vec4
-  ) -> Option<bool> {
-    let mut pos_side = None;
+  ) -> MinDistFromPlane {
+    let mut pos_side = MinDistFromPlane::Intersect;
     for vertex in self.vertices.iter() {
       let vertex_vec4 = vec4_from_vec3(*vertex, 1.0);
       let dist_from_plane = plane.dot(transform * vertex_vec4);
-      if dist_from_plane > 0.0 {
-        match pos_side {
-          None => pos_side = Some(true),
-          Some(is_pos) => if !is_pos {
-            pos_side = None;
-            break;
-          },
+      match pos_side {
+        MinDistFromPlane::NoIntersect(curr_min_dist) => {
+          if curr_min_dist < 0.0 && dist_from_plane > 0.0 {
+            return MinDistFromPlane::Intersect;
+          }
+          if curr_min_dist > 0.0 && dist_from_plane < 0.0 {
+            return MinDistFromPlane::Intersect;
+          }
+          if dist_from_plane.abs() < curr_min_dist.abs() {
+            pos_side = MinDistFromPlane::NoIntersect(dist_from_plane);
+          } else {
+            pos_side = MinDistFromPlane::NoIntersect(curr_min_dist);
+          }
         }
-      }
-      if dist_from_plane < 0.0 {
-        match pos_side {
-          None => pos_side = Some(false),
-          Some(is_pos) => if is_pos {
-            pos_side = None;
-            break;
-          },
+        MinDistFromPlane::Intersect => {
+          pos_side = MinDistFromPlane::NoIntersect(dist_from_plane);
         }
       }
     }
-    None
+    pos_side
+  }
+
+  pub fn get_distance_inside_plane(&self, transform: glam::Mat4, plane: glam::Vec4) -> f32 {
+    let max_dist_inside = self
+      .vertices
+      .iter()
+      .map(|v| { plane.dot(transform * vec4_from_vec3(*v, 1.0)) })
+      .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    f32::min(max_dist_inside.unwrap_or(0.0), 0.0)
   }
 
   pub fn will_plane_separate(
@@ -138,33 +162,34 @@ impl PolygonMesh {
     poly_mesh_2: &PolygonMesh,
     transform_2: glam::Mat4,
   ) -> bool {
-    let Some(on_pos_side_1) = poly_mesh_1.on_positive_side_of_plane(transform_1, plane) else {
+    let MinDistFromPlane::NoIntersect(on_pos_side_1) =
+      poly_mesh_1.get_min_dist_from_plane(transform_1, plane) else {
       return false
     };
-    let Some(on_pos_side_2) = poly_mesh_2.on_positive_side_of_plane(transform_2, plane) else {
+    let MinDistFromPlane::NoIntersect(on_pos_side_2) =
+      poly_mesh_2.get_min_dist_from_plane(transform_2, plane) else {
       return false
     };
-    on_pos_side_1 ^ on_pos_side_2
+    (on_pos_side_1 > 0.0) ^ (on_pos_side_2 > 0.0)
   }
 
   pub fn is_separation_plane_valid(
-    separation_plane: SeparationPlane,
+    separation_plane: SeparationType,
     poly_mesh_1: &PolygonMesh,
     transform_1: glam::Mat4,
     poly_mesh_2: &PolygonMesh,
     transform_2: glam::Mat4,
   ) -> bool {
     match separation_plane {
-      SeparationPlane::None => { false }
-      SeparationPlane::FirstObjectFace { idx } => {
-        let plane = transform_1 * poly_mesh_1.faces[idx].0;
+      SeparationType::FirstObjectFace { idx } => {
+        let plane = transform_1 * poly_mesh_1.collision_faces[idx];
         Self::will_plane_separate(plane, poly_mesh_1, transform_1, poly_mesh_2, transform_2)
       }
-      SeparationPlane::SecondObjectFace { idx } => {
-        let plane = transform_2 * poly_mesh_2.faces[idx].0;
+      SeparationType::SecondObjectFace { idx } => {
+        let plane = transform_2 * poly_mesh_2.collision_faces[idx];
         Self::will_plane_separate(plane, poly_mesh_1, transform_1, poly_mesh_2, transform_2)
       }
-      SeparationPlane::EdgeCross { first_idx, second_idx } => {
+      SeparationType::EdgeCross { first_idx, second_idx } => {
         let edge_ids_1 = poly_mesh_1.edges[first_idx];
         let edge_ids_2 = poly_mesh_2.edges[second_idx];
         let edge_1 = poly_mesh_1.vertices[edge_ids_1.1] - poly_mesh_1.vertices[edge_ids_1.0];
@@ -193,26 +218,26 @@ impl PolygonMesh {
     self_transform: glam::Mat4,
     other: &Self,
     other_transform: glam::Mat4
-  ) -> SeparationPlane {
+  ) -> Option<SeparationType> {
     // Check self's faces
-    for (i, face) in self.faces.iter().enumerate() {
-      let Some(is_on_pos_side) =
-        other.on_positive_side_of_plane(other_transform, self_transform * face.0) else {
+    for (i, face) in self.collision_faces.iter().enumerate() {
+      let MinDistFromPlane::NoIntersect(is_on_pos_side) =
+        other.get_min_dist_from_plane(other_transform, self_transform * *face) else {
         continue
       };
-      if is_on_pos_side {
-        return SeparationPlane::FirstObjectFace {idx: i};
+      if is_on_pos_side > 0.0 {
+        return Some(SeparationType::FirstObjectFace {idx: i});
       }
     }
 
     // Check other's faces
-    for (i, face) in other.faces.iter().enumerate() {
-      let Some(is_on_pos_side) =
-        self.on_positive_side_of_plane(self_transform, other_transform * face.0) else {
+    for (i, face) in other.collision_faces.iter().enumerate() {
+      let MinDistFromPlane::NoIntersect(is_on_pos_side) =
+        self.get_min_dist_from_plane(self_transform, other_transform * *face) else {
         continue
       };
-      if is_on_pos_side {
-        return SeparationPlane::SecondObjectFace {idx: i};
+      if is_on_pos_side > 0.0 {
+        return Some(SeparationType::SecondObjectFace {idx: i});
       }
     }
 
@@ -239,19 +264,66 @@ impl PolygonMesh {
           &self,
           self_transform,
           other,
-          other_transform
+          other_transform,
         ) {
-          return SeparationPlane::EdgeCross {first_idx: i, second_idx: j};
+          return Some(SeparationType::EdgeCross {first_idx: i, second_idx: j});
         }
       }
     }
-    SeparationPlane::None
+    None
   }
 }
 
-pub enum SeparationPlane {
-  None,
+#[derive(Debug, Clone, Copy)]
+pub enum SeparationType {
   FirstObjectFace{ idx: usize },
   SecondObjectFace{ idx: usize },
   EdgeCross{ first_idx: usize, second_idx: usize },
+}
+
+impl SeparationType {
+  pub fn decode_to_vec4(
+    &self,
+    poly_mesh_1: &PolygonMesh,
+    transform_1: glam::Mat4,
+    poly_mesh_2: &PolygonMesh,
+    transform_2: glam::Mat4,
+  ) -> Option<glam::Vec4> {
+    match self {
+      SeparationType::FirstObjectFace { idx } => {
+        let plane = transform_1 * poly_mesh_1.collision_faces[*idx];
+        Some(plane)
+      }
+      SeparationType::SecondObjectFace { idx } => {
+        let plane = transform_2 * poly_mesh_2.collision_faces[*idx];
+        Some(plane)
+      }
+      SeparationType::EdgeCross { first_idx, second_idx } => {
+        let edge_ids_1 = poly_mesh_1.edges[*first_idx];
+        let edge_ids_2 = poly_mesh_2.edges[*second_idx];
+        let edge_1 = poly_mesh_1.vertices[edge_ids_1.1] - poly_mesh_1.vertices[edge_ids_1.0];
+        let edge_1 = (transform_1 * vec4_from_vec3(edge_1, 0.0)).xyz();
+        let edge_2 = poly_mesh_2.vertices[edge_ids_2.1] - poly_mesh_2.vertices[edge_ids_2.0];
+        let edge_2 = (transform_2 * vec4_from_vec3(edge_2, 0.0)).xyz();
+        let edge_cross = edge_1.cross(edge_2);
+        if edge_cross.length_squared() == 0.0 {
+          return None;
+        }
+        let edge_cross = edge_cross.normalize();
+        let edge_cross = vec4_from_vec3(
+          edge_cross,
+          -edge_cross.dot(
+            (transform_1 * vec4_from_vec3(poly_mesh_1.vertices[edge_ids_1.0], 1.0)).xyz()
+          )
+        );
+        Some(edge_cross)
+      }
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Separation {
+  No(SeparationType),
+  Yes(SeparationType),
 }

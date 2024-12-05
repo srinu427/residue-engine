@@ -18,9 +18,9 @@ pub struct GameObject {
 
 impl GameObject {
   pub fn update(&mut self, frame_time: u128) -> Result<(), String> {
-    self.animation_time += frame_time;
-    let y_angle = self.rotation_animation.value_at(self.animation_time % 5000);
-    self.object_transform.transform = glam::Mat4::from_rotation_y(y_angle);
+    // self.animation_time += frame_time;
+    // let y_angle = self.rotation_animation.value_at(self.animation_time % 5000);
+    // self.object_transform.transform = glam::Mat4::from_rotation_y(y_angle);
     // let rot_mat = glam::Mat4::from_rotation_y(frame_time as f32/ 500.0);
     // self.object_transform.transform = self.object_transform.transform * rot_mat;
     self
@@ -61,9 +61,10 @@ impl Game {
         glam::vec3(0.0, 1.0, 0.0),
         1.0
       ),
+      glam::vec3(0.0, 0.0, 0.0),
       glam::Mat4::IDENTITY
     );
-    physics_engine.add_dynamic_physics_obj("cube_physics", cube_phy_object);
+    physics_engine.add_dynamic_physics_obj("cube_physics", cube_phy_object)?;
     let game_obj = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
@@ -85,9 +86,10 @@ impl Game {
         glam::vec3(10.0, 0.0, 0.0),
         glam::vec3(0.0, 0.0, -10.0)
       ),
+      glam::vec3(0.0, 0.0, 0.0),
       glam::Mat4::IDENTITY
     );
-    physics_engine.add_dynamic_physics_obj("floor_physics", floor_phy_object);
+    physics_engine.add_static_physics_obj("floor_physics", floor_phy_object)?;
     let floor = GameObject {
       display_mesh: Arc::new(OnceLock::new()),
       display_tex: Arc::new(OnceLock::new()),
@@ -140,8 +142,17 @@ impl Game {
     let frame_time = current_dur.as_millis() - self.last_update.as_millis();
     self.last_update = current_dur;
 
+    self.physics_engine.run(frame_time);
+
     let mut mesh_ftex_list = vec![];
     for go in self.game_objects.iter_mut() {
+      if let Some((phy_exists,  phy_name)) = &go.physics_name {
+        if *phy_exists {
+          if let Some(phy_transform) = self.physics_engine.get_dynamic_object_transform(phy_name) {
+            go.object_transform.transform = phy_transform;
+          }
+        }
+      }
       go.update(frame_time)?;
     }
     for go in self.game_objects.iter() {

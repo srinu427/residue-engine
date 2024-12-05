@@ -2,7 +2,9 @@ pub mod collision;
 mod field;
 
 use std::collections::HashMap;
-use collision::{PolygonMesh, SeparationPlane};
+use collision::{PolygonMesh, SeparationType};
+use glam::{Vec3Swizzles, Vec4Swizzles};
+use crate::collision::Separation;
 
 #[derive(Debug, Copy, Clone)]
 pub enum PhysicsMass {
@@ -19,9 +21,11 @@ pub enum PhysicsMomentOfInertia {
 #[derive(Debug, Copy, Clone)]
 pub struct PhysicsInfo {
   mass: PhysicsMass,
+  position: glam::Vec3,
   velocity: glam::Vec3,
   acceleration: glam::Vec3,
   moment_of_inertia: PhysicsMomentOfInertia,
+  rotation: glam::Mat4,
   angular_velocity: glam::Vec3,
   angular_acceleration: glam::Vec3,
 }
@@ -30,9 +34,11 @@ impl Default for PhysicsInfo {
   fn default() -> Self {
     Self {
       mass: PhysicsMass::Infinite,
+      position: glam::Vec3::ZERO,
       velocity: glam::Vec3::ZERO,
       acceleration: glam::Vec3::ZERO,
       moment_of_inertia: PhysicsMomentOfInertia::Infinite,
+      rotation: glam::Mat4::IDENTITY,
       angular_velocity: glam::Vec3::ZERO,
       angular_acceleration: glam::Vec3::ZERO,
     }
@@ -40,56 +46,73 @@ impl Default for PhysicsInfo {
 }
 
 impl PhysicsInfo {
-  pub fn update_and_get_transform(&mut self, time_ms: u128) -> glam::Mat4 {
+  pub fn update(&mut self, time_ms: u128, bounds: Vec<glam::Vec3>) {
     let time_float = time_ms as f32 / 1000.0;
+
+    for bound in bounds.iter() {
+      self.velocity = self.velocity.reject_from(*bound);
+      self.velocity = self.velocity.reject_from(*bound);
+    }
+    for bound in bounds.iter() {
+      self.acceleration = self.acceleration.reject_from(*bound);
+      self.acceleration = self.acceleration.reject_from(*bound);
+    }
+
     let translation =
       (self.velocity * time_float) + (0.5 * self.acceleration * time_float * time_float);
     let rotation = (self.angular_velocity * time_float) +
       (0.5 * self.angular_acceleration * time_float * time_float);
-    let rotation_transform = glam::Mat4::from_axis_angle(rotation.normalize(), rotation.length());
-    let translation_transform = glam::Mat4::from_translation(translation);
+    let rotation_transform = if rotation.length_squared() != 0.0 {
+      glam::Mat4::from_axis_angle(rotation.normalize(), rotation.length())
+    } else {
+      glam::Mat4::IDENTITY
+    };
 
-    self.velocity = self.acceleration * time_float;
-    self.angular_velocity = self.angular_acceleration * time_float;
+    self.position += translation;
+    self.velocity += self.acceleration * time_float;
 
-    translation_transform * rotation_transform
+    self.rotation = rotation_transform * self.rotation;
+    self.angular_velocity += self.angular_acceleration * time_float;
   }
 
-  pub fn get_transform(&self, time_ms: u128) -> glam::Mat4 {
-    let time_float = time_ms as f32 / 1000.0;
-    let translation =
-      (self.velocity * time_float) + (0.5 * self.acceleration * time_float * time_float);
-    let rotation = (self.angular_velocity * time_float) +
-      (0.5 * self.angular_acceleration * time_float * time_float);
-    let rotation_transform = glam::Mat4::from_axis_angle(rotation.normalize(), rotation.length());
-    let translation_transform = glam::Mat4::from_translation(translation);
-    translation_transform * rotation_transform
+  pub fn get_transform(&self) -> glam::Mat4 {
+    glam::Mat4::from_translation(self.position) * self.rotation
   }
 }
 
 #[derive(Debug, Clone)]
 pub struct PhysicsObject {
   mesh: PolygonMesh,
-  transform: glam::Mat4,
-  physics_info: PhysicsInfo
+  physics_info: PhysicsInfo,
+  stuck: bool,
 }
 
 impl PhysicsObject {
-  pub fn new(mesh: PolygonMesh, transform: glam::Mat4) -> Self {
-    Self { mesh, transform, physics_info: PhysicsInfo::default() }
+  pub fn new(mesh: PolygonMesh, pos: glam::Vec3, rotation: glam::Mat4) -> Self {
+    let physics_info = PhysicsInfo {
+      mass: PhysicsMass::Infinite,
+      position: pos,
+      velocity: Default::default(),
+      acceleration: Default::default(),
+      moment_of_inertia: PhysicsMomentOfInertia::Infinite,
+      rotation,
+      angular_velocity: Default::default(),
+      angular_acceleration: Default::default(),
+    };
+    Self { mesh, physics_info, stuck: false }
   }
 
-  pub fn update(&mut self, time_ms: u128) {
-    self.physics_info.update_and_get_transform(time_ms);
+  pub fn update(&mut self, time_ms: u128, bounds: Vec<glam::Vec3>) {
+    self.physics_info.update(time_ms, bounds);
   }
 
-  pub fn is_separation_valid(&self, other: &Self, sep_plane: SeparationPlane) -> bool {
+  pub fn is_separation_valid(&self, other: &Self, sep_plane: SeparationType) -> bool {
     PolygonMesh::is_separation_plane_valid(
       sep_plane,
       &self.mesh,
-      self.transform,
+      self.physics_info.get_transform(),
       &other.mesh,
-      other.transform
+      other.physics_info.get_transform(),
     )
   }
 }
@@ -99,8 +122,8 @@ pub struct PhysicsEngine {
   dynamic_object_reserve_len: usize,
   static_objects: HashMap<String, PhysicsObject>,
   dynamic_objects: HashMap<String, PhysicsObject>,
-  dyn_dyn_separations: HashMap<(String, String), SeparationPlane>,
-  dyn_static_separations: HashMap<(String, String), SeparationPlane>,
+  dyn_dyn_separations: HashMap<(String, String), Separation>,
+  dyn_static_separations: HashMap<(String, String), Separation>,
 }
 
 impl PhysicsEngine {
@@ -115,7 +138,14 @@ impl PhysicsEngine {
     }
   }
 
-  pub fn add_static_physics_obj(&mut self, name: &str, physics_obj: PhysicsObject) {
+  pub fn get_dynamic_object_transform(&self, name: &str) -> Option<glam::Mat4> {
+    self
+      .dynamic_objects
+      .get(name)
+      .map(|dynamic_transform| dynamic_transform.physics_info.get_transform())
+  }
+
+  pub fn add_static_physics_obj(&mut self, name: &str, physics_obj: PhysicsObject) -> Result<(), String> {
     // Check if the hashmap capacities are full
     if self.static_objects.len() == self.static_objects.capacity() {
       self.static_objects.reserve(self.static_object_reserve_len);
@@ -127,23 +157,24 @@ impl PhysicsEngine {
     }
     // Add the objects
     for (dyno_name, dyno) in self.dynamic_objects.iter() {
+      let separation = dyno
+        .mesh
+        .get_separation_plane(dyno.physics_info.get_transform(), &physics_obj.mesh, physics_obj.physics_info.get_transform())
+        .map(Separation::Yes)
+        .ok_or(format!("Separation for {} not found with {}", name, dyno_name))?;
       self
         .dyn_static_separations
-        .insert(
-          (dyno_name.clone(), name.to_string()),
-          physics_obj.mesh.get_separation_plane(physics_obj.transform, &dyno.mesh, dyno.transform)
-        );
+        .insert((dyno_name.clone(), name.to_string()), separation);
     }
     self
       .static_objects
       .insert(name.to_string(), physics_obj);
+    Ok(())
   }
 
-  pub fn add_dynamic_physics_obj(&mut self, name: &str, physics_obj: PhysicsObject) {
+  pub fn add_dynamic_physics_obj(&mut self, name: &str, mut physics_obj: PhysicsObject) -> Result<(), String> {
+    physics_obj.physics_info.acceleration = glam::Vec3::new(0.0, -1.0, 0.0);
     // Check if the hashmap capacities are full
-    if self.static_objects.len() == self.static_objects.capacity() {
-      self.static_objects.reserve(self.static_object_reserve_len);
-    }
     if self.dynamic_objects.len() == self.dynamic_objects.capacity() {
       self.dynamic_objects.reserve(self.dynamic_object_reserve_len);
     }
@@ -159,38 +190,172 @@ impl PhysicsEngine {
     }
     // Add the objects
     for (so_name, so) in self.static_objects.iter() {
+      let separation = physics_obj
+        .mesh
+        .get_separation_plane(physics_obj.physics_info.get_transform(), &so.mesh, so.physics_info.get_transform())
+        .map(Separation::Yes)
+        .ok_or(format!("Separation for {} not found with {}", name, so_name))?;
       self
         .dyn_static_separations
-        .insert(
-          (name.to_string(), so_name.clone()),
-          physics_obj.mesh.get_separation_plane(physics_obj.transform, &so.mesh, so.transform)
-        );
+        .insert((name.to_string(), so_name.clone()), separation);
     }
     for (dyno_name, dyno) in self.dynamic_objects.iter() {
+      let separation = physics_obj
+        .mesh
+        .get_separation_plane(physics_obj.physics_info.get_transform(), &dyno.mesh, dyno.physics_info.get_transform())
+        .map(Separation::Yes)
+        .ok_or(format!("Separation for {} not found with {}", name, dyno_name))?;
       self
         .dyn_dyn_separations
-        .insert(
-          (name.to_string(), dyno_name.clone()),
-          physics_obj.mesh.get_separation_plane(physics_obj.transform, &dyno.mesh, dyno.transform)
-        );
+        .insert((name.to_string(), dyno_name.clone()), separation);
     }
+
     self
       .dynamic_objects
       .insert(name.to_string(), physics_obj);
+    Ok(())
   }
 
   pub fn run(&mut self, time_ms: u128) {
-    let next_dyn_objs = self
+    let mut next_dyn_objs = self
       .dynamic_objects
       .iter()
       .map(|dyno| {
         let mut next_dyn_obj = dyno.1.clone();
-        next_dyn_obj.update(time_ms);
+        let mut curr_bounds = vec![];
+        for (so_name, so) in self.static_objects.iter() {
+          let Some(s_coll_sep) = self
+            .dyn_static_separations
+            .get(&(dyno.0.clone(), so_name.clone())) else {
+            continue;
+          };
+          let Separation::No(sep_plane) = s_coll_sep else { continue; };
+          let Some(sep_plane_vec4) = sep_plane
+            .decode_to_vec4(&dyno.1.mesh, dyno.1.physics_info.get_transform(), &so.mesh, so.physics_info.get_transform()) else {
+            continue;
+          };
+          curr_bounds.push(sep_plane_vec4.xyz());
+        }
+        next_dyn_obj.update(time_ms, curr_bounds);
         (dyno.0.clone(), next_dyn_obj)
       })
       .collect::<HashMap<_, _>>();
-    for (dyno_name, dynamic_obj) in next_dyn_objs.iter() {
-
+    for (dyno_name, dynamic_obj) in next_dyn_objs.iter_mut() {
+      let mut static_colliders = vec![];
+      for (so_name, so) in self.static_objects.iter() {
+        let Some(curr_sep_plane) =
+          self.dyn_static_separations.get(&(dyno_name.clone(), so_name.clone())) else {
+          continue;
+        };
+        let new_sep = match curr_sep_plane {
+          Separation::No(s_plane) => {
+            dynamic_obj.mesh.get_separation_plane(
+              dynamic_obj.physics_info.get_transform(),
+              &so.mesh,
+              so.physics_info.get_transform(),
+            )
+              .map(|x| Separation::Yes(x))
+              .unwrap_or(Separation::No(s_plane.clone()))
+          }
+          Separation::Yes(s_plane) => {
+            let sep_plane_still_valid = dynamic_obj.is_separation_valid(so, *s_plane);
+            if sep_plane_still_valid {
+              Separation::Yes(s_plane.clone())
+            } else {
+              dynamic_obj.mesh.get_separation_plane(
+                dynamic_obj.physics_info.get_transform(),
+                &so.mesh,
+                so.physics_info.get_transform(),
+              )
+                .map(|x| Separation::Yes(x))
+                .unwrap_or(Separation::No(s_plane.clone()))
+            }
+          }
+        };
+        self
+          .dyn_static_separations
+          .insert((dyno_name.clone(), dyno_name.clone()), new_sep);
+        match new_sep {
+          Separation::No(_) => {
+            static_colliders.push((so_name.clone(), new_sep));
+          }
+          Separation::Yes(_) => {}
+        }
+      }
+      let mut penetrations = vec![];
+      for (s_coll_name, s_coll_sep) in static_colliders.iter() {
+        let so = &self.static_objects[s_coll_name];
+        let Separation::No(sep_plane) = s_coll_sep else { continue; };
+        let Some(sep_plane_vec4) = sep_plane
+          .decode_to_vec4(&dynamic_obj.mesh, dynamic_obj.physics_info.get_transform(), &so.mesh, so.physics_info.get_transform()) else {
+          continue;
+        };
+        let penetration = match sep_plane {
+          SeparationType::FirstObjectFace { .. } => {
+            so.mesh.get_distance_inside_plane(so.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
+          }
+          SeparationType::SecondObjectFace { .. } => {
+            dynamic_obj.mesh.get_distance_inside_plane(dynamic_obj.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
+          }
+          SeparationType::EdgeCross { .. } => {
+            so.mesh.get_distance_inside_plane(so.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
+          }
+        };
+        penetrations.push(penetration)
+      }
+      if penetrations.len() > 0 {
+        println!("Penetrations found: {:?}", penetrations);
+      }
+      // Resolve Penetrations
+      let mut total_pen_resolve = glam::Vec3::ZERO;
+      let mut unresolvable = false;
+      let max_resolve_loop = 8;
+      for _ in 0..max_resolve_loop {
+        let mut resolved = true;
+        for penetration in penetrations.iter_mut() {
+          dynamic_obj.physics_info.velocity = dynamic_obj.physics_info.velocity.reject_from(*penetration);
+          if !(penetration.length_squared() == 0.0) {
+            let resolve_direction = if total_pen_resolve.length_squared() == 0.0 {
+              glam::Vec3::ZERO
+            } else {
+              penetration.reject_from(total_pen_resolve)
+            };
+            println!("Resolve direction: {:?}", resolve_direction);
+            if resolve_direction.length_squared() == 0.0 {
+              if penetration.dot(total_pen_resolve) < 0.0 {
+                unresolvable = true;
+                break;
+              } else {
+                if penetration.length_squared() > total_pen_resolve.length_squared() {
+                  println!("adding pen to total_pen_resolve: {}", penetration);
+                  total_pen_resolve = penetration.length() * *penetration;
+                  resolved = false;
+                }
+              }
+            } else {
+              let resolve_direction = resolve_direction.normalize();
+              let inv_cos_theta = penetration.length()/penetration.dot(resolve_direction);
+              if inv_cos_theta < 0.0 {
+                unresolvable = true;
+                break;
+              }
+              let prop_resolve = resolve_direction * (inv_cos_theta * penetration.length());
+              println!("adding resolve to total_pen_resolve: {}", prop_resolve);
+              total_pen_resolve = total_pen_resolve + prop_resolve;
+              resolved = false;
+            }
+          }
+        }
+        if resolved { break; }
+        if unresolvable { break; }
+      }
+      if unresolvable {
+        println!("Unresolvable");
+        dynamic_obj.stuck = true;
+      } else {
+        dynamic_obj.physics_info.position += total_pen_resolve;
+      }
+      self.dynamic_objects.insert(dyno_name.clone(), dynamic_obj.clone());
     }
   }
 }
