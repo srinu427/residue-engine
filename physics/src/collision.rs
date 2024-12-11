@@ -291,12 +291,22 @@ impl SeparationType {
   ) -> Option<glam::Vec4> {
     match self {
       SeparationType::FirstObjectFace { idx } => {
-        let plane = transform_1 * poly_mesh_1.collision_faces[*idx];
-        Some(plane)
+        let coll_face = poly_mesh_1.collision_faces[*idx];
+        let coll_face_norm = vec4_from_vec3(coll_face.xyz(), 0.0);
+        let coll_face_point = vec4_from_vec3((-coll_face_norm * coll_face.w).xyz(), 1.0);
+        let transformed_normal = transform_1 * coll_face_norm;
+        let transformed_point = transform_1 * coll_face_point;
+        let transformed_plane = vec4_from_vec3(transformed_normal.xyz(), -transformed_normal.dot(transformed_point));
+        Some(transformed_plane)
       }
       SeparationType::SecondObjectFace { idx } => {
-        let plane = transform_2 * poly_mesh_2.collision_faces[*idx];
-        Some(plane)
+        let coll_face = poly_mesh_2.collision_faces[*idx];
+        let coll_face_norm = vec4_from_vec3(coll_face.xyz(), 0.0);
+        let coll_face_point = vec4_from_vec3((-coll_face_norm * coll_face.w).xyz(), 1.0);
+        let transformed_normal = transform_1 * coll_face_norm;
+        let transformed_point = transform_1 * coll_face_point;
+        let transformed_plane = vec4_from_vec3(transformed_normal.xyz(), -transformed_normal.dot(transformed_point));
+        Some(transformed_plane)
       }
       SeparationType::EdgeCross { first_idx, second_idx } => {
         let edge_ids_1 = poly_mesh_1.edges[*first_idx];

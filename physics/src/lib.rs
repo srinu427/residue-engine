@@ -3,7 +3,7 @@ mod field;
 
 use std::collections::HashMap;
 use collision::{PolygonMesh, SeparationType};
-use glam::{Vec3Swizzles, Vec4Swizzles};
+use glam::Vec4Swizzles;
 use crate::collision::Separation;
 
 #[derive(Debug, Copy, Clone)]
@@ -48,15 +48,17 @@ impl Default for PhysicsInfo {
 impl PhysicsInfo {
   pub fn update(&mut self, time_ms: u128, bounds: Vec<glam::Vec3>) {
     let time_float = time_ms as f32 / 1000.0;
-
+    println!("bounds: {:?}", &bounds);
+    println!("vel before bound: {}", self.velocity);
+    println!("acc before bound: {}", self.acceleration);
     for bound in bounds.iter() {
-      self.velocity = self.velocity.reject_from(*bound);
       self.velocity = self.velocity.reject_from(*bound);
     }
     for bound in bounds.iter() {
       self.acceleration = self.acceleration.reject_from(*bound);
-      self.acceleration = self.acceleration.reject_from(*bound);
     }
+    println!("vel after bound: {}", self.velocity);
+    println!("acc after bound: {}", self.acceleration);
 
     let translation =
       (self.velocity * time_float) + (0.5 * self.acceleration * time_float * time_float);
@@ -241,119 +243,80 @@ impl PhysicsEngine {
       })
       .collect::<HashMap<_, _>>();
     for (dyno_name, dynamic_obj) in next_dyn_objs.iter_mut() {
-      let mut static_colliders = vec![];
-      for (so_name, so) in self.static_objects.iter() {
-        let Some(curr_sep_plane) =
-          self.dyn_static_separations.get(&(dyno_name.clone(), so_name.clone())) else {
-          continue;
-        };
-        let new_sep = match curr_sep_plane {
-          Separation::No(s_plane) => {
-            dynamic_obj.mesh.get_separation_plane(
-              dynamic_obj.physics_info.get_transform(),
-              &so.mesh,
-              so.physics_info.get_transform(),
-            )
-              .map(|x| Separation::Yes(x))
-              .unwrap_or(Separation::No(s_plane.clone()))
-          }
-          Separation::Yes(s_plane) => {
-            let sep_plane_still_valid = dynamic_obj.is_separation_valid(so, *s_plane);
-            if sep_plane_still_valid {
-              Separation::Yes(s_plane.clone())
-            } else {
+      let max_collision_resolves = 1024;
+      let mut collision_resolved_remaining = max_collision_resolves;
+
+      while collision_resolved_remaining > 0 {
+        collision_resolved_remaining -= 1;
+        let mut collider_found = false;
+        for (so_name, so) in self.static_objects.iter() {
+          let Some(curr_sep_plane) =
+            self.dyn_static_separations.get(&(dyno_name.clone(), so_name.clone())) else {
+            continue;
+          };
+          let new_sep = match curr_sep_plane {
+            Separation::No(s_plane) => {
               dynamic_obj.mesh.get_separation_plane(
                 dynamic_obj.physics_info.get_transform(),
                 &so.mesh,
                 so.physics_info.get_transform(),
               )
-                .map(|x| Separation::Yes(x))
+                .map(Separation::Yes)
                 .unwrap_or(Separation::No(s_plane.clone()))
             }
-          }
-        };
-        self
-          .dyn_static_separations
-          .insert((dyno_name.clone(), dyno_name.clone()), new_sep);
-        match new_sep {
-          Separation::No(_) => {
-            static_colliders.push((so_name.clone(), new_sep));
-          }
-          Separation::Yes(_) => {}
-        }
-      }
-      let mut penetrations = vec![];
-      for (s_coll_name, s_coll_sep) in static_colliders.iter() {
-        let so = &self.static_objects[s_coll_name];
-        let Separation::No(sep_plane) = s_coll_sep else { continue; };
-        let Some(sep_plane_vec4) = sep_plane
-          .decode_to_vec4(&dynamic_obj.mesh, dynamic_obj.physics_info.get_transform(), &so.mesh, so.physics_info.get_transform()) else {
-          continue;
-        };
-        let penetration = match sep_plane {
-          SeparationType::FirstObjectFace { .. } => {
-            so.mesh.get_distance_inside_plane(so.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
-          }
-          SeparationType::SecondObjectFace { .. } => {
-            dynamic_obj.mesh.get_distance_inside_plane(dynamic_obj.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
-          }
-          SeparationType::EdgeCross { .. } => {
-            so.mesh.get_distance_inside_plane(so.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
-          }
-        };
-        penetrations.push(penetration)
-      }
-      if penetrations.len() > 0 {
-        println!("Penetrations found: {:?}", penetrations);
-      }
-      // Resolve Penetrations
-      let mut total_pen_resolve = glam::Vec3::ZERO;
-      let mut unresolvable = false;
-      let max_resolve_loop = 8;
-      for _ in 0..max_resolve_loop {
-        let mut resolved = true;
-        for penetration in penetrations.iter_mut() {
-          dynamic_obj.physics_info.velocity = dynamic_obj.physics_info.velocity.reject_from(*penetration);
-          if !(penetration.length_squared() == 0.0) {
-            let resolve_direction = if total_pen_resolve.length_squared() == 0.0 {
-              glam::Vec3::ZERO
-            } else {
-              penetration.reject_from(total_pen_resolve)
-            };
-            println!("Resolve direction: {:?}", resolve_direction);
-            if resolve_direction.length_squared() == 0.0 {
-              if penetration.dot(total_pen_resolve) < 0.0 {
-                unresolvable = true;
-                break;
+            Separation::Yes(s_plane) => {
+              let sep_plane_still_valid = dynamic_obj.is_separation_valid(so, *s_plane);
+              if sep_plane_still_valid {
+                Separation::Yes(s_plane.clone())
               } else {
-                if penetration.length_squared() > total_pen_resolve.length_squared() {
-                  println!("adding pen to total_pen_resolve: {}", penetration);
-                  total_pen_resolve = penetration.length() * *penetration;
-                  resolved = false;
-                }
+                dynamic_obj.mesh.get_separation_plane(
+                  dynamic_obj.physics_info.get_transform(),
+                  &so.mesh,
+                  so.physics_info.get_transform(),
+                )
+                  .map(Separation::Yes)
+                  .unwrap_or(Separation::No(s_plane.clone()))
               }
-            } else {
-              let resolve_direction = resolve_direction.normalize();
-              let inv_cos_theta = penetration.length()/penetration.dot(resolve_direction);
-              if inv_cos_theta < 0.0 {
-                unresolvable = true;
+            }
+          };
+          self
+            .dyn_static_separations
+            .insert((dyno_name.clone(), dyno_name.clone()), new_sep);
+          match new_sep {
+            Separation::No(sep_plane) => {
+              let Some(sep_plane_vec4) = sep_plane
+                .decode_to_vec4(&dynamic_obj.mesh, dynamic_obj.physics_info.get_transform(), &so.mesh, so.physics_info.get_transform()) else {
+                continue;
+              };
+              let penetration = match sep_plane {
+                SeparationType::FirstObjectFace { .. } => {
+                  so.mesh.get_distance_inside_plane(so.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
+                }
+                SeparationType::SecondObjectFace { .. } => {
+                  -dynamic_obj.mesh.get_distance_inside_plane(dynamic_obj.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
+                }
+                SeparationType::EdgeCross { .. } => {
+                  so.mesh.get_distance_inside_plane(so.physics_info.get_transform(), sep_plane_vec4) * sep_plane_vec4.xyz()
+                }
+              };
+
+              if penetration.length_squared() > 0.0 {
+                println!("penetration found: {}", penetration);
+                println!("dyn obj pos: {}", dynamic_obj.physics_info.position);
+                println!("dyn obj vel: {}", dynamic_obj.physics_info.velocity);
+                println!("dyn obj acc: {}", dynamic_obj.physics_info.acceleration);
+                dynamic_obj.physics_info.position += penetration;
+                println!("dyn obj pos after resolve: {}", dynamic_obj.physics_info.position);
+                collider_found = true;
                 break;
               }
-              let prop_resolve = resolve_direction * (inv_cos_theta * penetration.length());
-              println!("adding resolve to total_pen_resolve: {}", prop_resolve);
-              total_pen_resolve = total_pen_resolve + prop_resolve;
-              resolved = false;
             }
+            Separation::Yes(_) => {}
           }
         }
-        if resolved { break; }
-        if unresolvable { break; }
-      }
-      if unresolvable {
-        println!("Unresolvable");
-        dynamic_obj.stuck = true;
-      } else {
-        dynamic_obj.physics_info.position += total_pen_resolve;
+        if !collider_found {
+          continue;
+        }
       }
       self.dynamic_objects.insert(dyno_name.clone(), dynamic_obj.clone());
     }
