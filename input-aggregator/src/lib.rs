@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-pub use winit::keyboard::Key;
+pub use winit::keyboard::{Key, NamedKey};
 
 
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +16,15 @@ impl KeyState {
       KeyState::Idle => false,
       KeyState::Pressed => true,
       KeyState::Held => true,
+      KeyState::Released => false,
+    }
+  }
+
+  pub fn is_just_pressed(&self) -> bool {
+    match self {
+      KeyState::Idle => false,
+      KeyState::Pressed => true,
+      KeyState::Held => false,
       KeyState::Released => false,
     }
   }

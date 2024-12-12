@@ -52,10 +52,15 @@ impl PhysicsInfo {
     let time_float = time_ms as f32 / 1000.0;
 
     for bound in bounds.iter() {
-      self.velocity = self.velocity.reject_from(bound.as_vec3());
+      if self.velocity.dot(bound.as_vec3()) > 0.0 {
+        self.velocity = self.velocity.reject_from(bound.as_vec3());
+      }
     }
+
     for bound in bounds.iter() {
-      self.acceleration = self.acceleration.reject_from(bound.as_vec3());
+      if self.acceleration.dot(bound.as_vec3()) > 0.0 {
+        self.acceleration = self.acceleration.reject_from(bound.as_vec3());
+      }
     }
 
     let translation =
@@ -102,6 +107,10 @@ impl PhysicsObject {
     Self { mesh, physics_info, stuck: false }
   }
 
+  pub fn set_velocity(&mut self, velocity: glam::Vec3) {
+    self.physics_info.velocity = velocity;
+  }
+
   pub fn update(&mut self, time_ms: u128, bounds: Vec<Direction>) {
     self.physics_info.update(time_ms, bounds);
   }
@@ -136,6 +145,10 @@ impl PhysicsEngine {
       dyn_dyn_separations: HashMap::with_capacity(dynamic_obj_inc_len * dynamic_obj_inc_len),
       dyn_static_separations: HashMap::with_capacity(dynamic_obj_inc_len * static_obj_inc_len),
     }
+  }
+
+  pub fn get_dyn_obj_mut(&mut self, name: &str) -> Option<&mut PhysicsObject> {
+    self.dynamic_objects.get_mut(name)
   }
 
   pub fn get_dynamic_object_transform(&self, name: &str) -> Option<glam::Mat4> {
@@ -173,7 +186,7 @@ impl PhysicsEngine {
   }
 
   pub fn add_dynamic_physics_obj(&mut self, name: &str, mut physics_obj: PhysicsObject) -> Result<(), String> {
-    physics_obj.physics_info.acceleration = glam::Vec3::new(0.0, -1.0, 0.0);
+    physics_obj.physics_info.acceleration = glam::Vec3::new(0.0, -10.0, 0.0);
     // Check if the hashmap capacities are full
     if self.dynamic_objects.len() == self.dynamic_objects.capacity() {
       self.dynamic_objects.reserve(self.dynamic_object_reserve_len);
@@ -222,6 +235,7 @@ impl PhysicsEngine {
       .iter()
       .map(|dyno| {
         let mut next_dyn_obj = dyno.1.clone();
+        next_dyn_obj.physics_info.acceleration = glam::Vec3::new(0.0, -10.0, 0.0);
         let mut curr_bounds = vec![];
         for (so_name, so) in self.static_objects.iter() {
           let Some(s_coll_sep) = self
@@ -313,7 +327,7 @@ impl PhysicsEngine {
           }
         }
         if !collider_found {
-          continue;
+          break;
         }
       }
       self.dynamic_objects.insert(dyno_name.clone(), dynamic_obj.clone());

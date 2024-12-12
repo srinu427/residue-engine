@@ -111,12 +111,24 @@ impl ApplicationHandler for AppActivity {
       WindowEvent::ThemeChanged(_) => {}
       WindowEvent::Occluded(_) => {}
       WindowEvent::RedrawRequested => {
-        self.game.as_mut().map(|x| { x.update(&self.input_aggregator) });
+        self
+          .game
+          .as_mut()
+          .map(|x| {
+            x.update(&self.input_aggregator);
+            self.input_aggregator.clear_key_states();
+          });
       }
     }
   }
 
   fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-    self.game.as_mut().map(|x| { x.update(&self.input_aggregator) });
+    self
+      .game
+      .as_mut()
+      .map(|x| {
+        x.update(&self.input_aggregator);
+        self.input_aggregator.clear_key_states();
+      });
   }
 }

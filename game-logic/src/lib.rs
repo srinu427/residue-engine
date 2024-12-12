@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use animation::KeyFramed;
-use input_aggregator::{InputAggregator, Key};
+use input_aggregator::{InputAggregator, Key, NamedKey};
 use physics::{collision::PolygonMesh, PhysicsEngine, PhysicsObject};
 use physics::geometry::{Direction, Point};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
@@ -143,6 +143,14 @@ impl Game {
     let frame_time = current_dur.as_millis() - self.last_update.as_millis();
     self.last_update = current_dur;
 
+    if inputs.is_key_pressed(Key::Named(NamedKey::Space)).is_just_pressed() {
+      if let Some(cube_physics_obj) = self
+        .physics_engine
+        .get_dyn_obj_mut("cube_physics") {
+        cube_physics_obj.set_velocity(glam::vec3(0.0, 5.0, 0.0));
+      }
+    }
+
     self.physics_engine.run(frame_time);
 
     let mut mesh_ftex_list = vec![];
@@ -173,6 +181,7 @@ impl Game {
     if inputs.is_key_pressed(Key::Character("d".into())).is_pressed() {
       self.camera.pos -= glam::vec4(-1.0, 0.0, 1.0, 0.0) * frame_time as f32/500.0;
     }
+
     self.renderer.send_batch_sync(vec![
       RendererMessage::SetCamera(self.camera),
       RendererMessage::Draw(mesh_ftex_list),
