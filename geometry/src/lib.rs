@@ -46,6 +46,10 @@ impl Direction {
     Self { dir: dir.xyz() }
   }
 
+  pub fn from_points(p1: Point, p2: Point) -> Self {
+    Self { dir: p1.pos - p2.pos }
+  }
+
   pub fn as_vec3(&self) -> glam::Vec3 {
     self.dir
   }
@@ -56,6 +60,22 @@ impl Direction {
 
   pub fn transform(&self, transform: glam::Mat4) -> Self {
     Self::from_vec4(transform * self.as_vec4())
+  }
+
+  pub fn normalize(&self) -> Self {
+    Self::from_vec3(self.as_vec3().normalize())
+  }
+
+  pub fn cross(&self, other: Self) -> Self {
+    Self::from_vec3(self.dir.cross(other.dir))
+  }
+
+  pub fn opposite(&self) -> Self {
+    Self::from_vec3(-self.dir)
+  }
+
+  pub fn is_zero(&self) -> bool {
+    self.dir.length_squared() == 0.0
   }
 }
 
@@ -74,7 +94,19 @@ impl Plane {
     vec4_from_vec3(self.dir.as_vec3(), -self.dir.as_vec3().dot(self.point.as_vec3()))
   }
 
+  pub fn get_direction(&self) -> Direction {
+    self.dir
+  }
+
+  pub fn get_point(&self) -> Point {
+    self.point
+  }
+
   pub fn transform(&self, transform: glam::Mat4) -> Self {
     Self { dir: self.dir.transform(transform), point: self.point.transform(transform) }
+  }
+
+  pub fn dist_from_point(&self, point: &Point) -> f32 {
+    self.get_plane_eq().dot(point.as_vec4())
   }
 }

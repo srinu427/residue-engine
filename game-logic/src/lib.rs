@@ -3,6 +3,7 @@ use std::sync::{Arc, OnceLock};
 use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key};
 use physics::{collision::PolygonMesh, PhysicsEngine, PhysicsObject};
+use physics::geometry::{Direction, Point};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod animation;
@@ -56,9 +57,9 @@ impl Game {
     );
     let cube_phy_object = PhysicsObject::new(
       PolygonMesh::new_cuboid(
-        glam::vec3(0.0, 0.0, 0.0),
-        glam::vec3(1.0, 0.0, 0.0),
-        glam::vec3(0.0, 1.0, 0.0),
+        Point::from_vec3(glam::vec3(0.0, 0.0, 0.0)),
+        Direction::from_vec3(glam::vec3(1.0, 0.0, 0.0)),
+        Direction::from_vec3(glam::vec3(0.0, 1.0, 0.0)),
         1.0
       ),
       glam::vec3(0.0, 0.0, 0.0),
@@ -76,15 +77,15 @@ impl Game {
 
     let floor_verts_cpu = TriMeshCPU::make_planar_polygon(
       PolygonMesh::new_rectangle(
-        glam::vec3(0.0, -2.0, 0.0),
-        glam::vec3(10.0, 0.0, 0.0),
-        glam::vec3(0.0, 0.0, -10.0),
-      ).get_faces().remove(0));
+        Point::from_vec3(glam::vec3(0.0, -2.0, 0.0)),
+        Direction::from_vec3(glam::vec3(10.0, 0.0, 0.0)),
+        Direction::from_vec3(glam::vec3(0.0, 0.0, -10.0)),
+      ).get_faces().remove(0).iter().map(|face| {face.as_vec3()}).collect());
     let floor_phy_object = PhysicsObject::new(
       PolygonMesh::new_rectangle(
-        glam::vec3(0.0, -2.0, 0.0),
-        glam::vec3(10.0, 0.0, 0.0),
-        glam::vec3(0.0, 0.0, -10.0)
+        Point::from_vec3(glam::vec3(0.0, -2.0, 0.0)),
+        Direction::from_vec3(glam::vec3(10.0, 0.0, 0.0)),
+        Direction::from_vec3(glam::vec3(0.0, 0.0, -10.0))
       ),
       glam::vec3(0.0, 0.0, 0.0),
       glam::Mat4::IDENTITY
