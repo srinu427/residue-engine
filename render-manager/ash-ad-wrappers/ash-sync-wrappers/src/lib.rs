@@ -69,6 +69,11 @@ impl AdFence {
         .map_err(|e| format!("at vk fence reset: {e}"))
     }
   }
+
+  pub fn wait_and_reset(&self, timeout: u64) -> Result<(), String> {
+    self.wait(timeout)?;
+    self.reset()
+  }
 }
 
 impl Drop for AdFence {

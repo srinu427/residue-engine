@@ -158,6 +158,13 @@ impl PhysicsEngine {
       .map(|dynamic_transform| dynamic_transform.physics_info.get_transform())
   }
 
+  pub fn get_static_object_transform(&self, name: &str) -> Option<glam::Mat4> {
+    self
+      .static_objects
+      .get(name)
+      .map(|static_transform| static_transform.physics_info.get_transform())
+  }
+
   pub fn add_static_physics_obj(&mut self, name: &str, physics_obj: PhysicsObject) -> Result<(), String> {
     // Check if the hashmap capacities are full
     if self.static_objects.len() == self.static_objects.capacity() {
@@ -230,6 +237,12 @@ impl PhysicsEngine {
   }
 
   pub fn run(&mut self, time_ms: u128) {
+    for _ in 0..time_ms {
+      self.run_one_ms();
+    }
+  }
+
+  pub fn run_one_ms(&mut self) {
     let mut next_dyn_objs = self
       .dynamic_objects
       .iter()
@@ -253,9 +266,20 @@ impl PhysicsEngine {
             ) else {
             continue;
           };
-          curr_bounds.push(sep_plane_vec4.get_direction());
+          let penetration_dir = match sep_plane {
+            SeparationType::FirstObjectFace { .. } => {
+              sep_plane_vec4.get_direction()
+            }
+            SeparationType::SecondObjectFace { .. } => {
+              sep_plane_vec4.get_direction().opposite()
+            }
+            SeparationType::EdgeCross { .. } => {
+              sep_plane_vec4.get_direction()
+            }
+          };
+          curr_bounds.push(penetration_dir);
         }
-        next_dyn_obj.update(time_ms, curr_bounds);
+        next_dyn_obj.update(1, curr_bounds);
         (dyno.0.clone(), next_dyn_obj)
       })
       .collect::<HashMap<_, _>>();
@@ -329,6 +353,10 @@ impl PhysicsEngine {
         if !collider_found {
           break;
         }
+      }
+      if collision_resolved_remaining == 0 {
+        dynamic_obj.stuck = true;
+        println!("penetrations unresolvable for {dyno_name}");
       }
       self.dynamic_objects.insert(dyno_name.clone(), dynamic_obj.clone());
     }

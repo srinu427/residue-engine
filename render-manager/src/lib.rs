@@ -29,7 +29,7 @@ pub enum RendererMessage {
   UploadTriMesh(String, TriMeshCPU, Arc<OnceLock<Arc<TriMeshGPU>>>),
   UploadFlatTex(String, String, Arc<OnceLock<Arc<FlatTextureGPU>>>),
   SetCamera(Camera3D),
-  Draw(Vec<(Arc<TriMeshGPU>, Arc<FlatTextureGPU>)>),
+  DrawTriangleMeshesWithFlatTexture(Vec<(Arc<TriMeshGPU>, Option<Arc<FlatTextureGPU>>)>),
   Stop,
 }
 
@@ -62,7 +62,7 @@ impl Renderer {
                 .add_flat_texture(name, flat_tex_path, flat_tex_gpu)
                 .inspect_err(|e| eprintln!("error adding texture: {e}"));
             }
-            RendererMessage::Draw(mesh_ftex_list) => {
+            RendererMessage::DrawTriangleMeshesWithFlatTexture(mesh_ftex_list) => {
               for _ in 0..3 {
                 if let Ok(d_res) = render_mgr.draw(&mesh_ftex_list).inspect_err(|e| eprintln!("{}", e)) {
                   if !d_res {
@@ -359,15 +359,14 @@ impl RenderManager {
 
   pub fn draw(
     &mut self,
-    mesh_ftex_list: &[(Arc<TriMeshGPU>, Arc<FlatTextureGPU>)],
+    mesh_ftex_list: &[(Arc<TriMeshGPU>, Option<Arc<FlatTextureGPU>>)],
   ) -> Result<bool, String> {
     // Acquiring next image to draw
     let (image_idx, refresh_needed) = self
       .swapchain
       .acquire_next_image(None, Some(&self.image_acquire_fence))
       .map_err(|e| format!("at acquiring next image: {e}"))?;
-    self.image_acquire_fence.wait(999999999)?;
-    self.image_acquire_fence.reset()?;
+    self.image_acquire_fence.wait_and_reset(999999999)?;
 
     if refresh_needed {
       let _ = self
@@ -377,8 +376,7 @@ impl RenderManager {
       return Ok(true);
     }
 
-    self.render_fences[image_idx as usize].wait(999999999)?;
-    self.render_fences[image_idx as usize].reset()?;
+    self.render_fences[image_idx as usize].wait_and_reset(999999999)?;
 
     if !self.swapchain.initialized() {
       self
@@ -390,8 +388,7 @@ impl RenderManager {
         .submit(&[], &[], Some(&self.image_acquire_fence))
         .map_err(|e| format!("error submitting cmds: {e}"))?;
 
-      self.image_acquire_fence.wait(999999999)?;
-      self.image_acquire_fence.reset()?;
+      self.image_acquire_fence.wait_and_reset(999999999)?;
       self.swapchain.set_initialized();
     }
 
@@ -428,19 +425,25 @@ impl RenderManager {
       as f32
       / self.triangle_frame_buffers[image_idx as usize].resolution().height as f32;
     self.camera.refresh_vp_matrix(1.5, current_aspect_ratio);
-    // if let AdDescriptorBinding::UniformBuffer(Some(cam_buffer)) = self.camera_dset.bindings()[0].clone() {
-    //   cam_buffer.write_data(0, &[self.camera])?;
-    // }
 
     self.render_cmd_buffers[image_idx as usize]
       .begin(vk::CommandBufferUsageFlags::default())
       .map_err(|e| format!("at beginning render cmd buffer:  {e}"))?;
 
+
+    // Use default flat tex for meshes without tex
+    let filled_flat_tex = mesh_ftex_list
+      .iter()
+      .map(|(mesh, opt_flat_tex)| {
+        (mesh.clone(), opt_flat_tex.clone().unwrap_or(self.flat_tex_gen.get_default_texture()))
+      })
+      .collect::<Vec<_>>();
+
     self.tri_mesh_tex_renderer.render(
       &self.render_cmd_buffers[image_idx as usize],
       &self.triangle_frame_buffers[image_idx as usize],
       self.camera,
-      mesh_ftex_list,
+      &filled_flat_tex,
     );
 
     self.render_cmd_buffers[image_idx as usize].pipeline_barrier(
@@ -550,8 +553,7 @@ impl RenderManager {
 impl Drop for RenderManager {
   fn drop(&mut self) {
     for fence in self.render_fences.iter() {
-      let _ = fence.wait(999999999);
-      let _ = fence.reset();
+      let _ = fence.wait_and_reset(999999999);
     }
   }
 }

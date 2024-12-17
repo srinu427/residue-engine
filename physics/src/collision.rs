@@ -89,7 +89,7 @@ impl PolygonMesh {
   ) -> Self {
     let n_tangent = tangent.normalize();
     let n_bitangent = bitangent.normalize();
-    let normal = n_bitangent.cross(n_tangent).normalize();
+    let normal = n_tangent.cross(n_bitangent).normalize();
 
     let h_tangent = tangent.as_vec3() / 2.0;
     let h_bitangent = bitangent.as_vec3() / 2.0;
@@ -113,7 +113,7 @@ impl PolygonMesh {
     let faces = vec![
       (Plane::new(n_tangent, Point::from_vec3(center.as_vec3() + h_tangent)), vec![0, 3, 5, 4]),
       (Plane::new(n_tangent.opposite(), Point::from_vec3(center.as_vec3() - h_tangent)), vec![2, 1, 7, 6]),
-      (Plane::new(n_bitangent, Point::from_vec3(center.as_vec3() + h_bitangent)), vec![0, 1, 7, 4]),
+      (Plane::new(n_bitangent, Point::from_vec3(center.as_vec3() + h_bitangent)), vec![0, 4, 7, 1]),
       (Plane::new(n_bitangent.opposite(), Point::from_vec3(center.as_vec3() - h_bitangent)), vec![3, 2, 6, 5]),
       (Plane::new(normal, Point::from_vec3(center.as_vec3() + h_depth)), vec![0, 1, 2, 3]),
       (Plane::new(normal.opposite(), Point::from_vec3(center.as_vec3() - h_depth)), vec![4, 5, 6, 7]),
@@ -276,7 +276,7 @@ impl PolygonMesh {
   ) -> Option<SeparationType> {
     // Check self's faces
     for (i, face) in self.collision_faces.iter().enumerate() {
-      let SideOfPlane::Positive(is_on_pos_side) =
+      let SideOfPlane::Positive(_) =
         other.get_min_dist_from_plane(other_transform, face.transform(self_transform)) else {
         continue
       };
@@ -285,7 +285,7 @@ impl PolygonMesh {
 
     // Check other's faces
     for (i, face) in other.collision_faces.iter().enumerate() {
-      let SideOfPlane::Positive(is_on_pos_side) =
+      let SideOfPlane::Positive(_) =
         self.get_min_dist_from_plane(self_transform, face.transform(other_transform)) else {
         continue
       };

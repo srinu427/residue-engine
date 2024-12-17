@@ -49,6 +49,14 @@ impl TriMeshCPU {
     self
   }
 
+  pub fn combine(inp: Vec<Self>) -> Self {
+    let mut empty_mesh = Self{vertices: Vec::new(), triangles: Vec::new()};
+    for mesh in inp {
+      empty_mesh = empty_mesh.merge(mesh);
+    }
+    empty_mesh
+  }
+
   pub fn make_rect(center: glam::Vec3, tangent: glam::Vec3, bitangent: glam::Vec3) -> Self {
     let normal = tangent.cross(bitangent).normalize();
     let verts = vec![

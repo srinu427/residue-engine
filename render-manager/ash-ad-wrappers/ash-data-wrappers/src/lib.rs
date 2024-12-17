@@ -285,6 +285,104 @@ impl AdImage {
     }
   }
 
+  pub fn new_2d_from_bytes(
+    ash_device: Arc<AdAshDevice>,
+    allocator: Arc<Mutex<Allocator>>,
+    mem_location: MemoryLocation,
+    name: &str,
+    usage: vk::ImageUsageFlags,
+    file_data: &[u8],
+    cmd_buffer: &AdCommandBuffer,
+    init_layout: vk::ImageLayout,
+  ) -> Result<Arc<Self>, String> {
+    let image_info =
+      image::load_from_memory(file_data).map_err(|e| format!("at loading from mem: {e}"))?;
+    let image_rgba8 = image_info.to_rgba8();
+
+    let stage_buffer = AdBuffer::new(
+      ash_device.clone(),
+      allocator.clone(),
+      MemoryLocation::CpuToGpu,
+      &format!("{name}_stage_buffer"),
+      vk::BufferCreateFlags::default(),
+      image_rgba8.len() as vk::DeviceSize,
+      vk::BufferUsageFlags::TRANSFER_SRC,
+    )
+      .map_err(|e| format!("at stage buffer create:: {e}"))?;
+    stage_buffer.write_data(0, &image_rgba8)?;
+
+    let image_2d = AdImage::new_2d(
+      ash_device.clone(),
+      allocator,
+      mem_location,
+      name,
+      vk::Format::R8G8B8A8_SRGB,
+      vk::Extent2D::default().width(image_info.width()).height(image_info.height()),
+      vk::ImageUsageFlags::TRANSFER_DST | usage,
+      vk::SampleCountFlags::TYPE_1,
+      1,
+    )?;
+
+    cmd_buffer.begin(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)?;
+
+    cmd_buffer.pipeline_barrier(
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &[
+        vk::ImageMemoryBarrier::default()
+          .image(image_2d.inner)
+          .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_array_layer(0).layer_count(1).base_mip_level(0).level_count(1))
+          .src_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .dst_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .old_layout(vk::ImageLayout::UNDEFINED)
+          .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+      ]
+    );
+    cmd_buffer.copy_buffer_to_image(
+      stage_buffer.inner(),
+      image_2d.inner,
+      vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+      &[vk::BufferImageCopy::default()
+        .image_offset(vk::Offset3D::default())
+        .image_extent(image_2d.resolution())
+        .image_subresource(vk::ImageSubresourceLayers::default()
+          .aspect_mask(vk::ImageAspectFlags::COLOR)
+          .base_array_layer(0)
+          .layer_count(1)
+          .mip_level(0)
+        )]
+    );
+    cmd_buffer.pipeline_barrier(
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::PipelineStageFlags::ALL_COMMANDS,
+      vk::DependencyFlags::BY_REGION,
+      &[],
+      &[],
+      &[
+        vk::ImageMemoryBarrier::default()
+          .image(image_2d.inner)
+          .subresource_range(vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_array_layer(0).layer_count(1).base_mip_level(0).level_count(1))
+          .src_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .dst_queue_family_index(cmd_buffer.cmd_pool().queue().family_index())
+          .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+          .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+          .new_layout(init_layout)
+      ]
+    );
+
+    cmd_buffer.end()?;
+    let fence = AdFence::new(ash_device.clone(), vk::FenceCreateFlags::empty())?;
+    cmd_buffer.submit(&[], &[], Some(&fence))?;
+    fence.wait(999999999)?;
+    Ok(image_2d)
+  }
+
   pub fn new_2d_from_file(
     ash_device: Arc<AdAshDevice>,
     allocator: Arc<Mutex<Allocator>>,

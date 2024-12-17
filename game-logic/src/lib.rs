@@ -7,6 +7,8 @@ use physics::geometry::{Direction, Point};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
 mod animation;
+mod renderable;
+mod levels;
 
 pub struct GameObject {
   pub display_mesh: Arc<OnceLock<Arc<TriMeshGPU>>>,
@@ -49,20 +51,28 @@ impl Game {
     let mut renderer = Renderer::new(surface.clone()).map_err(|e| format!("at renderer init: {e}"))?;
     let mut physics_engine = PhysicsEngine::new(1000, 100);
     let start_time = std::time::Instant::now();
-    let tri_verts_cpu = TriMeshCPU::make_cuboid(
-      glam::vec3(0.0, 0.0, 0.0),
-      glam::vec3(1.0, 0.0, 0.0),
-      glam::vec3(0.0, 1.0, 0.0),
-      1.0,
+
+    let cube_poly_mesh = PolygonMesh::new_cuboid(
+      Point::from_vec3(glam::vec3(0.0, 0.0, 0.0)),
+      Direction::from_vec3(glam::vec3(1.0, 0.0, 0.0)),
+      Direction::from_vec3(glam::vec3(0.0, 1.0, 0.0)),
+      1.0
+    );
+
+    let cube_verts_cpu = TriMeshCPU::combine(
+      cube_poly_mesh
+        .get_faces()
+        .iter()
+        .map(|face| {
+          TriMeshCPU::make_planar_polygon(
+            face.iter().map(|vert| vert.as_vec3()).collect::<Vec<_>>()
+          )
+        })
+        .collect::<Vec<_>>()
     );
     let cube_phy_object = PhysicsObject::new(
-      PolygonMesh::new_cuboid(
-        Point::from_vec3(glam::vec3(0.0, 0.0, 0.0)),
-        Direction::from_vec3(glam::vec3(1.0, 0.0, 0.0)),
-        Direction::from_vec3(glam::vec3(0.0, 1.0, 0.0)),
-        1.0
-      ),
-      glam::vec3(0.0, 0.0, 0.0),
+      cube_poly_mesh,
+      glam::vec3(0.0, 2.0, 0.0),
       glam::Mat4::IDENTITY
     );
     physics_engine.add_dynamic_physics_obj("cube_physics", cube_phy_object)?;
@@ -72,22 +82,20 @@ impl Game {
       physics_name: Some((true, "cube_physics".to_string())),
       object_transform: TriMeshTransform { transform: glam::Mat4::IDENTITY },
       animation_time: 0,
-      rotation_animation: KeyFramed { key_frames: vec![(0, 0.0), (2000, 360f32.to_radians()), (4000, 0.0)] },
+      rotation_animation: KeyFramed { key_frames: vec![(0, 0.0)] },
     };
 
+    let floor_poly_mesh = PolygonMesh::new_rectangle(
+      Point::from_vec3(glam::vec3(0.0, 0.0, 0.0)),
+      Direction::from_vec3(glam::vec3(10.0, 0.0, 0.0)),
+      Direction::from_vec3(glam::vec3(0.0, 0.0, -10.0)),
+    );
     let floor_verts_cpu = TriMeshCPU::make_planar_polygon(
-      PolygonMesh::new_rectangle(
-        Point::from_vec3(glam::vec3(0.0, -2.0, 0.0)),
-        Direction::from_vec3(glam::vec3(10.0, 0.0, 0.0)),
-        Direction::from_vec3(glam::vec3(0.0, 0.0, -10.0)),
-      ).get_faces().remove(0).iter().map(|face| {face.as_vec3()}).collect());
+      floor_poly_mesh.get_faces().remove(0).iter().map(|face| {face.as_vec3()}).collect()
+    );
     let floor_phy_object = PhysicsObject::new(
-      PolygonMesh::new_rectangle(
-        Point::from_vec3(glam::vec3(0.0, -2.0, 0.0)),
-        Direction::from_vec3(glam::vec3(10.0, 0.0, 0.0)),
-        Direction::from_vec3(glam::vec3(0.0, 0.0, -10.0))
-      ),
-      glam::vec3(0.0, 0.0, 0.0),
+      floor_poly_mesh,
+      glam::vec3(0.0, -2.0, 0.0),
       glam::Mat4::IDENTITY
     );
     physics_engine.add_static_physics_obj("floor_physics", floor_phy_object)?;
@@ -104,7 +112,7 @@ impl Game {
       .send_batch_sync(vec![
         RendererMessage::UploadTriMesh(
           "triangle_main".to_string(),
-          tri_verts_cpu,
+          cube_verts_cpu,
           game_obj.display_mesh.clone()
         ),
         RendererMessage::UploadTriMesh(
@@ -112,16 +120,16 @@ impl Game {
           floor_verts_cpu,
           floor.display_mesh.clone()
         ),
-        RendererMessage::UploadFlatTex(
-          "./background.png".to_string(),
-          "./background.png".to_string(),
-          game_obj.display_tex.clone(),
-        ),
-        RendererMessage::UploadFlatTex(
-          "./background.png".to_string(),
-          "./background.png".to_string(),
-          floor.display_tex.clone(),
-        ),
+        // RendererMessage::UploadFlatTex(
+        //   "./background.png".to_string(),
+        //   "./background.png".to_string(),
+        //   game_obj.display_tex.clone(),
+        // ),
+        // RendererMessage::UploadFlatTex(
+        //   "./background.png".to_string(),
+        //   "./background.png".to_string(),
+        //   floor.display_tex.clone(),
+        // ),
       ])
       .map_err(|e| format!("at sending work to renderer: {e}"))?;
     Ok(Self {
@@ -160,6 +168,10 @@ impl Game {
           if let Some(phy_transform) = self.physics_engine.get_dynamic_object_transform(phy_name) {
             go.object_transform.transform = phy_transform;
           }
+        } else {
+          if let Some(phy_transform) = self.physics_engine.get_static_object_transform(phy_name) {
+            go.object_transform.transform = phy_transform;
+          }
         }
       }
       go.update(frame_time)?;
@@ -169,10 +181,10 @@ impl Game {
         .display_mesh
         .get()
         .cloned() else { continue };
-      let Some(ftex) = go
+      let ftex = go
         .display_tex
         .get()
-        .cloned() else { continue };
+        .cloned();
       mesh_ftex_list.push((mesh, ftex));
     }
     if inputs.is_key_pressed(Key::Character("a".into())).is_pressed() {
@@ -184,7 +196,7 @@ impl Game {
 
     self.renderer.send_batch_sync(vec![
       RendererMessage::SetCamera(self.camera),
-      RendererMessage::Draw(mesh_ftex_list),
+      RendererMessage::DrawTriangleMeshesWithFlatTexture(mesh_ftex_list),
     ])?;
     Ok(())
   }
