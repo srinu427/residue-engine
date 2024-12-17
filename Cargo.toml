@@ -9,3 +9,7 @@ render-manager = {path = "render-manager"}
 wgpu-render-mgr = {path = "wgpu-render-mgr"}
 input-aggregator = {path = "input-aggregator"}
 game-logic = {path = "game-logic"}
+image = "0.25.2"
+
+[build-dependencies]
+winresource = "0.1.19"

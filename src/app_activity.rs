@@ -6,7 +6,11 @@ use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
+use winit::platform::windows::WindowAttributesExtWindows;
+use winit::window;
 use winit::window::{Window, WindowAttributes, WindowId};
+
+static WINDOW_ICON_BYTES: &[u8] = include_bytes!("../assets/icon.ico");
 
 pub struct AppActivity {
   surface: Option<Arc<AdSurface>>,
@@ -32,8 +36,19 @@ impl AppActivity {
 impl ApplicationHandler for AppActivity {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     if self.window.is_none() {
+      let icon = if let Ok(window_icon_image) = image::load_from_memory(WINDOW_ICON_BYTES) {
+        let icon_res = (window_icon_image.width(), window_icon_image.height());
+        window::Icon::from_rgba(window_icon_image.into_bytes(), icon_res.0, icon_res.1, ).ok()
+      } else {
+        None
+      };
       let Ok(w) = event_loop
-        .create_window(WindowAttributes::default())
+        .create_window(
+          WindowAttributes::default()
+            .with_taskbar_icon(icon.clone())
+            .with_window_icon(icon)
+            .with_title("Residue Engine"),
+        )
         .inspect_err(|e| eprintln!("error creating window: {e}")) else {
         event_loop.exit();
         return
@@ -115,7 +130,8 @@ impl ApplicationHandler for AppActivity {
           .game
           .as_mut()
           .map(|x| {
-            x.update(&self.input_aggregator);
+            let _ =
+              x.update(&self.input_aggregator).inspect_err(|e| eprintln!("at updating game: {e}"));
             self.input_aggregator.clear_key_states();
           });
       }
@@ -127,7 +143,8 @@ impl ApplicationHandler for AppActivity {
       .game
       .as_mut()
       .map(|x| {
-        x.update(&self.input_aggregator);
+        let _ =
+          x.update(&self.input_aggregator).inspect_err(|e| eprintln!("at updating game: {e}"));
         self.input_aggregator.clear_key_states();
       });
   }

@@ -202,8 +202,6 @@ impl RenderManager {
       return Err("preferred depth format not supported".to_string());
     }
 
-    println!("depth format selected");
-
     let surface_formats = surface.get_gpu_formats(ash_device.gpu())?;
     let surface_caps = surface.get_gpu_capabilities(ash_device.gpu())?;
     let surface_present_modes = surface.get_gpu_present_modes(ash_device.gpu())?;
