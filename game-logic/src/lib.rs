@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use animation::KeyFramed;
 use input_aggregator::{InputAggregator, Key, NamedKey};
-use physics::{collision::PolygonMesh, PhysicsEngine, PhysicsObject};
+use physics::{collision::PolygonMeshTemp, PhysicsEngine, PhysicsObject};
 use physics::geometry::{Direction, Point};
 use render_manager::{AdSurface, Camera3D, FlatTextureGPU, Renderer, RendererMessage, TriMeshCPU, TriMeshGPU, TriMeshTransform};
 
@@ -52,7 +52,7 @@ impl Game {
     let mut physics_engine = PhysicsEngine::new(1000, 100);
     let start_time = std::time::Instant::now();
 
-    let cube_poly_mesh = PolygonMesh::new_cuboid(
+    let cube_poly_mesh = PolygonMeshTemp::new_cuboid(
       Point::from_vec3(glam::vec3(0.0, 0.0, 0.0)),
       Direction::from_vec3(glam::vec3(1.0, 0.0, 0.0)),
       Direction::from_vec3(glam::vec3(0.0, 1.0, 0.0)),
@@ -85,7 +85,7 @@ impl Game {
       rotation_animation: KeyFramed { key_frames: vec![(0, 0.0)] },
     };
 
-    let floor_poly_mesh = PolygonMesh::new_rectangle(
+    let floor_poly_mesh = PolygonMeshTemp::new_rectangle(
       Point::from_vec3(glam::vec3(0.0, 0.0, 0.0)),
       Direction::from_vec3(glam::vec3(10.0, 0.0, 0.0)),
       Direction::from_vec3(glam::vec3(0.0, 0.0, -10.0)),
@@ -148,7 +148,7 @@ impl Game {
 
   pub fn update(&mut self, inputs: &InputAggregator) -> Result<(), String> {
     let current_dur = self.start_time.elapsed();
-    let frame_time = current_dur.as_millis() - self.last_update.as_millis();
+    let frame_time = current_dur.as_micros() - self.last_update.as_micros();
     self.last_update = current_dur;
 
     if inputs.is_key_pressed(Key::Named(NamedKey::Space)).is_just_pressed() {
