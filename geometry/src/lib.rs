@@ -129,6 +129,19 @@ impl LineSegment {
   pub fn displace(&self, displacement: glam::Vec3) -> Self {
     Self::from_vec3s(self.start + displacement, self.end + displacement)
   }
+
+  pub fn intersection_with_plane(&self, plane: Plane) -> Option<(Point, f32)> {
+    let dir = Direction::from_points(self.get_end(), self.get_start());
+    let plane_eq = plane.get_plane_eq();
+    let dir_dot_p = dir.as_vec4().dot(plane_eq);
+    if dir_dot_p == 0.0 {
+      return None;
+    }
+    let a_dot_p = self.get_start().as_vec4().dot(plane_eq);
+    let t = a_dot_p / dir_dot_p;
+    let intersection = Point::from_vec3(self.start + (dir.as_vec3() * t));
+    Some((intersection, t))
+  }
 }
 
 #[derive(Debug, Copy, Clone)]
