@@ -77,8 +77,20 @@ impl RigidBodyInfo {
 
 #[derive(Debug, Clone)]
 pub enum CollisionInfo {
-  FutureCollision { time: f32, plane: Plane, bounds: Vec<Plane> },
-  FutureSliding { time: f32, plane: Plane, bounds: Vec<Plane> },
+  FutureCollision {
+    time: f32,
+    plane: Plane,
+    bounds: Vec<Plane>,
+    disp_1: glam::Vec3,
+    disp_2: glam::Vec3
+  },
+  FutureSliding {
+    time: f32,
+    plane: Plane,
+    bounds: Vec<Plane>,
+    disp_1: glam::Vec3,
+    disp_2: glam::Vec3
+  },
   NoCollision
 }
 
