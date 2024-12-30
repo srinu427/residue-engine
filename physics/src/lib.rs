@@ -6,17 +6,7 @@ use structs::RigidBodyType;
 mod force;
 pub mod structs;
 
-#[derive(Debug, Copy, Clone)]
-pub enum Mass {
-  Infinite,
-  Finite(f32),
-}
 
-#[derive(Debug, Copy, Clone)]
-pub enum MomentOfInertia {
-  Infinite,
-  Finite(glam::Mat3),
-}
 
 #[derive(Debug, Copy, Clone)]
 pub struct RigidBodyInfo {

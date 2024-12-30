@@ -1,4 +1,4 @@
-use geometry::{glam, Direction, LineSegment, Plane, Point};
+use geometry::{glam, Direction, LineSegment, Orientation, Plane, Point};
 
 #[derive(Debug, Clone)]
 pub struct PolygonFace {
@@ -22,7 +22,7 @@ impl PolygonFace {
         Plane::new(bound_normal, e.get_start())
       })
       .collect::<Vec<_>>();
-    PolygonFace { verts, face, edges, bound_planes, }
+    PolygonFace { verts, face, edges, bound_planes }
   }
 
   pub fn get_verts(&self) -> &Vec<Point> {
@@ -48,7 +48,11 @@ impl PolygonFace {
     let t_bound_planes =
       self.bound_planes.iter().map(|e| e.transform(transform)).collect::<Vec<_>>();
 
-    Self { verts: t_verts, face: t_face, edges: t_edges, bound_planes: t_bound_planes, }
+    Self { verts: t_verts, face: t_face, edges: t_edges, bound_planes: t_bound_planes }
+  }
+
+  pub fn oriented(&self, orientation: Orientation) -> Self {
+    self.transformed(orientation.get_full_transform())
   }
 
   pub fn new_rectangle(center: Point, tangent: Direction, bitangent: Direction) -> Self {
@@ -61,9 +65,9 @@ impl PolygonFace {
       center.as_vec3() - h_tangent - h_bitangent,
       center.as_vec3() + h_tangent - h_bitangent,
     ]
-      .iter()
-      .map(|x| Point::from_vec3(*x))
-      .collect::<Vec<_>>();
+    .iter()
+    .map(|x| Point::from_vec3(*x))
+    .collect::<Vec<_>>();
     PolygonFace::new(vertices)
   }
 
@@ -71,7 +75,7 @@ impl PolygonFace {
     center: Point,
     tangent: Direction,
     bitangent: Direction,
-    depth: f32
+    depth: f32,
   ) -> Vec<Self> {
     let n_tangent = tangent.normalize();
     let n_bitangent = bitangent.normalize();
@@ -93,9 +97,9 @@ impl PolygonFace {
       center.as_vec3() - h_tangent - h_bitangent - h_depth,
       center.as_vec3() - h_tangent + h_bitangent - h_depth,
     ]
-      .iter()
-      .map(|x| Point::from_vec3(*x))
-      .collect::<Vec<_>>();
+    .iter()
+    .map(|x| Point::from_vec3(*x))
+    .collect::<Vec<_>>();
     let faces = vec![
       PolygonFace::new(vec![vertices[0], vertices[1], vertices[2], vertices[3]]),
       PolygonFace::new(vec![vertices[4], vertices[5], vertices[6], vertices[7]]),

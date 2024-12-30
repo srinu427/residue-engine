@@ -1,4 +1,4 @@
-use geometry::Point;
+use geometry::{glam, Orientation, Point};
 
 static INV_ROOT_3: f32 = 0.577350269189625764508;
 static ROOT_3: f32 = 1.732050807568877293527;
@@ -71,5 +71,12 @@ impl Sphere {
       ];
     }
     triangles
+  }
+
+  pub fn oriented(&self, orientation: Orientation) -> Self {
+    Self {
+      radius: self.radius,
+      center: Point::from_vec3(self.center.as_vec3() + orientation.position),
+    }
   }
 }
