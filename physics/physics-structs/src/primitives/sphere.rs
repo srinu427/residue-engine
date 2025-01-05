@@ -3,29 +3,6 @@ use geometry::{glam, Orientation, Point};
 static INV_ROOT_3: f32 = 0.577350269189625764508;
 static ROOT_3: f32 = 1.732050807568877293527;
 
-static REGULAR_TETRAHEDRON_VERTS: [[Point; 3]; 4] = [
-  [
-    Point::from_vec3(glam::Vec3::new(-1.0, -1.0, -1.0)),
-    Point::from_vec3(glam::Vec3::new(1.0, 1.0, -1.0)),
-    Point::from_vec3(glam::Vec3::new(-1.0, 1.0, 1.0)),
-  ],
-  [
-    Point::from_vec3(glam::Vec3::new(-1.0, 1.0, 1.0)),
-    Point::from_vec3(glam::Vec3::new(1.0, 1.0, -1.0)),
-    Point::from_vec3(glam::Vec3::new(1.0, -1.0, 1.0)),
-  ],
-  [
-    Point::from_vec3(glam::Vec3::new(1.0, 1.0, -1.0)),
-    Point::from_vec3(glam::Vec3::new(-1.0, -1.0, -1.0)),
-    Point::from_vec3(glam::Vec3::new(1.0, -1.0, 1.0)),
-  ],
-  [
-    Point::from_vec3(glam::Vec3::new(-1.0, -1.0, -1.0)),
-    Point::from_vec3(glam::Vec3::new(-1.0, 1.0, 1.0)),
-    Point::from_vec3(glam::Vec3::new(1.0, -1.0, 1.0)),
-  ],
-];
-
 fn subdivide_sphere_triangles(triangles: Vec<[Point; 3]>) -> Vec<[Point; 3]> {
   let mut new_sphere_triangles = vec![];
   for triangle in triangles {
@@ -54,7 +31,29 @@ impl Sphere {
   }
 
   pub fn to_triangles(&self, subdivision: usize) -> Vec<[Point; 3]> {
-    let mut triangles = REGULAR_TETRAHEDRON_VERTS.to_vec();
+    let regular_tetrahedron_verts: [[Point; 3]; 4] = [
+      [
+        Point::from_vec3(glam::Vec3::new(-1.0, -1.0, -1.0)),
+        Point::from_vec3(glam::Vec3::new(1.0, 1.0, -1.0)),
+        Point::from_vec3(glam::Vec3::new(-1.0, 1.0, 1.0)),
+      ],
+      [
+        Point::from_vec3(glam::Vec3::new(-1.0, 1.0, 1.0)),
+        Point::from_vec3(glam::Vec3::new(1.0, 1.0, -1.0)),
+        Point::from_vec3(glam::Vec3::new(1.0, -1.0, 1.0)),
+      ],
+      [
+        Point::from_vec3(glam::Vec3::new(1.0, 1.0, -1.0)),
+        Point::from_vec3(glam::Vec3::new(-1.0, -1.0, -1.0)),
+        Point::from_vec3(glam::Vec3::new(1.0, -1.0, 1.0)),
+      ],
+      [
+        Point::from_vec3(glam::Vec3::new(-1.0, -1.0, -1.0)),
+        Point::from_vec3(glam::Vec3::new(-1.0, 1.0, 1.0)),
+        Point::from_vec3(glam::Vec3::new(1.0, -1.0, 1.0)),
+      ],
+    ];
+    let mut triangles = regular_tetrahedron_verts.to_vec();
     for _ in 0..subdivision {
       triangles = subdivide_sphere_triangles(triangles);
     }

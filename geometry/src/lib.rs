@@ -11,6 +11,7 @@ pub struct Point {
 }
 
 impl Point {
+  #[inline]
   pub fn from_vec3(pos: glam::Vec3) -> Self {
     Self { pos }
   }

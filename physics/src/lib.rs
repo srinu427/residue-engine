@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use structs::RigidBodyType;
 
 mod force;
-pub mod structs;
 
 
 

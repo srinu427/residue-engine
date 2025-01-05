@@ -1,4 +1,4 @@
-use geometry::{glam, Orientation};
+use geometry::{glam, Direction, LineSegment, Orientation, Point};
 use polygon_face::PolygonFace;
 use sphere::Sphere;
 
@@ -18,55 +18,58 @@ pub enum MomentOfInertia {
 }
 
 #[derive(Debug, Clone)]
-pub enum RigidBodyType {
-  PolygonFace(PolygonFace),
-  Sphere(Sphere),
+pub struct RigidBodyPhysicsProps {
+  mass: Mass,
+  velocity: glam::Vec3,
+  acceleration: glam::Vec3,
+  orientation: Orientation,
 }
 
-impl RigidBodyType {
-  pub fn oriented(&self, orientation: Orientation) -> Self {
-    match self {
-      Self::PolygonFace(polygon_face) => Self::PolygonFace(polygon_face.oriented(orientation)),
-      Self::Sphere(sphere) => Self::Sphere(sphere.oriented(orientation)),
-    }
+#[derive(Debug, Clone)]
+pub struct RigidPoint {
+  raw: Point,
+  thickness: f32,
+}
+
+impl RigidPoint {
+  pub fn min_dist_from_r_point(&self, r_point: &RigidPoint) -> f32 {
+    (self.raw.as_vec3() - r_point.raw.as_vec3()).length() - self.thickness - r_point.thickness
   }
 }
 
 #[derive(Debug, Clone)]
-pub struct RigidBody {
-  bodies: Vec<RigidBodyType>,
-  collision_mask: u32,
-  mass: Mass,
-  velocity: glam::Vec3,
-  acceleration: glam::Vec3,
-  moment_of_inertia: MomentOfInertia,
-  angular_velocity: glam::Vec3,
-  angular_acceleration: glam::Vec3,
-  orientation: Orientation,
+pub struct RigidLineSegment {
+  raw: LineSegment,
+  thickness: f32,
 }
 
-impl RigidBody {
-  pub fn new(
-    bodies: Vec<RigidBodyType>,
-    collision_mask: u32,
-    mass: Mass,
-    velocity: glam::Vec3,
-    acceleration: glam::Vec3,
-    moment_of_inertia: MomentOfInertia,
-    angular_velocity: glam::Vec3,
-    angular_acceleration: glam::Vec3,
-    orientation: Orientation,
-  ) -> Self {
-    Self {
-      bodies,
-      collision_mask,
-      mass,
-      velocity,
-      acceleration,
-      moment_of_inertia,
-      angular_velocity,
-      angular_acceleration,
-      orientation,
-    }
-  }
+#[derive(Debug, Clone)]
+pub struct RigidCircle {
+  center: Point,
+  normal: Direction,
+  radius: f32,
+  thickness: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RigidRectangle {
+  center: Point,
+  u: Direction,
+  v: Direction,
+  n: Direction,
+  u_len: f32,
+  v_len: f32,
+  thickness: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RigidCuboid {
+  center: Point,
+  u: Direction,
+  v: Direction,
+  w: Direction,
+  u_len: f32,
+  v_len: f32,
+  w_len: f32,
+  thickness: f32,
 }
